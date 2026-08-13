@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Vector store — rebuilt from the PDF on first run, never a source of truth
+chroma_db/
+
+# Editor / OS cruft
+.DS_Store
+.obsidian/
+.vscode/
+.idea/
+
+# Working files
+*.bak
