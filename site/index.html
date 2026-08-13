@@ -96,6 +96,16 @@
 
 <p>Solution architects, cloud architects, and technical leads who know APIs, distributed systems, and Python, but haven't built an LLM agent from the wire up. LLM-specific ideas (embeddings, tool calling, context windows) are explained the first time they matter on each page, so you can land anywhere and orient fast.</p>
 
+<h2 id="frameworks">Should you use a framework?</h2>
+
+<p>Yes. When it's time to build something real, use a framework.</p>
+
+<p>LangGraph, the vendor SDKs, and their neighbors solve problems you don't want to solve twice: retries, streaming, checkpointing, persistence, provider abstraction, observability. This site isn't an argument against them, and the code here isn't a production foundation. Don't ship it.</p>
+
+<p>Build it by hand once anyway, because <strong>a framework gives you plumbing, not judgment</strong>. No library decides what your retrieval threshold should be, notices that a two-word chunk is quietly disarming a guardrail three layers above it, or catches a model reporting a document's silence as a fact. Those stay your problems.</p>
+
+<p>And afterward, framework documentation stops being magic words. You know there's a loop in there, you know where the seam is, and you know somebody's compaction policy is running whether the docs mention one or not. That's the difference between evaluating a tool and being sold one. <a href="going-further.html#frameworks">Going Further</a> has a lens for evaluating specific ones.</p>
+
 <h2>How to use this site</h2>
 
 <p><strong>Reading straight through?</strong> Start at <a href="setup.html">Setup</a> and follow the next-page links; the sequence mirrors the book this site is adapted from, and the code accumulates page by page.</p>
