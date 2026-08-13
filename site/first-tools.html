@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your First Tools: calculate and compare — Agentic AI from Scratch</title>
+<meta name="description" content="Give a local LLM agent its first tools: a safe calculator (AST, no eval) and a comparator that closes the gap models exploit by eyeballing comparisons. Tool schemas as prompt engineering, dispatch, and the first runnable agent.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html" aria-current="page">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Your First Tools</h1>
+
+<p class="lede">Two tools make the loop run: a calculator and a comparator. The second one looks redundant until you see the failure it closes, and that failure teaches the design rule behind every guardrail in this series.</p>
+<p class="builds-on">Builds on: <a href="loop.html">the loop</a>. Produces: the first runnable agent (<a href="code.html">checkpoint: chapter 3</a>).</p>
+
+<h2 id="two-things">A tool is two things</h2>
+
+<p>Every tool is exactly two artifacts: an implementation (a plain Python function) and a schema (a JSON description). Keep the split sharp: <strong>the model never sees your code.</strong> The schema is the model's entire knowledge of what a tool does.</p>
+
+<div class="callout takeaway">
+<span class="label">Takeaway</span>
+<p>The schema's description field is prompt engineering, not documentation. The difference between a tool used correctly and a tool ignored can live entirely in that string.</p>
+</div>
+
+<h2 id="calculate">Tool 1: calculate</h2>
+
+<p>LLMs are unreliable at arithmetic. Not incapable; unreliable, which is worse: the wrong answer arrives with the same fluent confidence as the right one. The general rule: <strong>if a computation has a correct answer, take it out of the model's hands and put it in a tool.</strong></p>
+
+<pre><code>import operator
+
+def calculate(expression: str) -&gt; dict:
+    """Evaluate a basic arithmetic expression safely (no eval of arbitrary code)."""
+    import ast  # operator is already imported at module scope
+
+    ops = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.Pow: operator.pow,
+        ast.USub: operator.neg,
+    }
+
+    def _eval(node):
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.BinOp):
+            return ops[type(node.op)](_eval(node.left), _eval(node.right))
+        if isinstance(node, ast.UnaryOp):
+            return ops[type(node.op)](_eval(node.operand))
+        raise ValueError("unsupported expression")
+
+    try:
+        result = _eval(ast.parse(expression, mode="eval").body)
+        return {"result": result}
+    except Exception as e:
+        return {"error": str(e)}</code></pre>
+
+<p>Two decisions worth a sentence each:</p>
+
+<ul>
+  <li><strong>AST walk, never <code>eval()</code>.</strong> The expression comes from the model, and the model's input comes from the user. That's a chain of untrusted input, and <code>eval()</code> on untrusted input is code execution. The tool boundary is a trust boundary, starting now.</li>
+  <li><strong>Errors return as data, never raise.</strong> A raised exception kills your loop. An <code>{"error": ...}</code> dict goes back to the model, which can read it and recover. The model can't catch exceptions.</li>
+</ul>
+
+<h2 id="compare">Tool 2: compare, and why it exists</h2>
+
+<div class="callout problem">
+<span class="label">The problem</span>
+<p>Give the model only <code>calculate</code> and ask "is Austin's temperature more than 3 times as warm as Seattle's?" It dutifully calls <code>calculate("3 * 68")</code>, gets 204, and then silently eyeballs whether 101 exceeds 204 in its own head while writing the answer. It computed the product with a tool and did the comparison on vibes.</p>
+</div>
+
+<div class="callout design">
+<span class="label">The design</span>
+<p>A dedicated <code>compare</code> tool takes the remaining judgment away too. When you delegate a computation, audit what judgment stays on the model's side of the handoff; "compute 3 × 68" and "decide whether 101 exceeds 204" feel like one operation and are two.</p>
+</div>
+
+<pre><code>def compare(a: float, b: float, operator_: str) -&gt; dict:
+    """Compare two numbers so the model never has to judge magnitude itself."""
+    ops = {
+        "&gt;": operator.gt,
+        "&lt;": operator.lt,
+        "&gt;=": operator.ge,
+        "&lt;=": operator.le,
+        "==": operator.eq,
+        "!=": operator.ne,
+    }
+    if operator_ not in ops:
+        return {"error": f"unsupported operator {operator_!r}, use one of {list(ops)}"}
+    return {"result": ops[operator_](a, b)}</code></pre>
+
+<p>Trivial code, durable lesson: every guardrail in Part 2 is this same move at larger scale, finding a judgment the model is quietly making and taking it away.</p>
+
+<h2 id="schemas">The schemas</h2>
+
+<p>The model-facing half, sent as <code>tools=TOOL_SCHEMAS</code> on every call. Compare the two descriptions: <code>calculate</code> gets one flat sentence, <code>compare</code> gets escalating explicit instruction, because models reach for calculators naturally but don't naturally believe magnitude judgment is beyond them.</p>
+
+<pre><code>TOOL_SCHEMAS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate",
+            "description": "Evaluate a basic arithmetic expression, e.g. '(3 + 5) * 2'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {"type": "string"},
+                },
+                "required": ["expression"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare",
+            "description": (
+                "Compare two numbers with an operator and return true/false. "
+                "Use this for ANY magnitude judgment — 'is X more than Y', "
+                "'is X at least Y', 'is X equal to Y', etc. Do not judge "
+                "comparisons yourself; always call this tool instead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "a": {"type": "number"},
+                    "b": {"type": "number"},
+                    "operator_": {
+                        "type": "string",
+                        "enum": ["&gt;", "&lt;", "&gt;=", "&lt;=", "==", "!="],
+                        "description": "Comparison to apply as: a &lt;operator_&gt; b",
+                    },
+                },
+                "required": ["a", "b", "operator_"],
+            },
+        },
+    },
+]</code></pre>
+
+<p>The <code>enum</code> on <code>operator_</code> is the same instinct in schema form: declare the six legal values so malformed calls mostly don't happen, instead of mostly getting caught.</p>
+
+<h2 id="dispatch">Dispatch, and the system-prompt reinforcement</h2>
+
+<pre><code>TOOL_IMPLEMENTATIONS = {
+    "calculate": calculate,
+    "compare": compare,
+}</code></pre>
+
+<p>A dict from name to callable. In <a href="mcp-client.html">Part 3</a>, this dict becomes one of two places a call can route, and the fact that dispatch is this dumb is exactly why that change will be small.</p>
+
+<p>The system prompt pushes from the other side (a local 9B model follows instructions less reliably than a frontier model, so the rule lives in both places the model looks):</p>
+
+<pre><code>You are a helpful assistant. Use tools when they help answer the question.
+Never trust your own math — if a calculation is needed, always call the
+calculate tool for it. Never judge a comparison yourself either — for
+anything like 'is X more than Y' or 'is X at least Y', always call the
+compare tool and use its result, rather than deciding in your head.</code></pre>
+
+<div class="callout takeaway">
+<span class="label">Takeaway</span>
+<p>These are requests, not guarantees. The model can ignore every word, and sometimes does. The recurring hierarchy: prompts reduce a failure rate, structure eliminates a failure mode. This page built one of each (the prompt above; the AST allowlist in <code>calculate</code>).</p>
+</div>
+
+<h2 id="run-it">Run it</h2>
+
+<p>Grab the complete runnable file from <a href="code.html">code checkpoints</a> (chapter 3) and run it with a question that needs both tools:</p>
+
+<pre class="trace"><code>USER: If I have 12 apples and give away a third of them, then buy 7 more, how many do I have?
+--- turn 0: executing tool ---
+    calculate({'expression': '12 / 3'}) -&gt; {'result': 4.0}
+...</code></pre>
+
+<p>The trace is the product here, not the apple count. You're watching a model decide, turn by turn, that it needs your code, and from here on the trace is how you'll debug everything.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="loop.html">← What Is an Agentic Loop</a>
+  <a class="next" href="knowledge-base.html">Adding a Knowledge Base →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

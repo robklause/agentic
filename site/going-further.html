@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Going Further: Cloud Models, Frameworks, Evals, Multi-Agent — Agentic AI from Scratch</title>
+<meta name="description" content="What changes when your local agent leaves the laptop: the three-line cloud swap, multiple MCP servers, streaming, persistence, multi-agent, how to evaluate LangGraph and friends, and eval tooling.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html" aria-current="page">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Going Further</h1>
+
+<p class="lede">What changes when this system leaves your laptop (three lines), and what to reach for in each direction the series deliberately didn't go. A page of doors, each opened far enough to see through.</p>
+<p class="builds-on">Builds on: <a href="mcp-client.html">the finished system</a>.</p>
+
+<h2 id="cloud">Swapping in a cloud model</h2>
+
+<p>Everything here runs through an OpenAI-compatible client pointed at Ollama, so pointing it elsewhere is configuration, not a rewrite:</p>
+
+<pre><code>client = OpenAI(
+    base_url="https://openrouter.ai/api/v1",
+    api_key=os.environ["OPENROUTER_API_KEY"],   # a real key now — never hardcode it
+)
+MODEL = "&lt;model string from OpenRouter's catalog&gt;"</code></pre>
+
+<p>That's the whole migration. What rides along untouched: the loop, all three local tools, the MCP server with its discovery and dispatch, compaction, both input guardrails, the citation verifier, the termination backstops, and the threshold's enforcement. Azure OpenAI and Bedrock work the same way with their OpenAI-compatible endpoints.</p>
+
+<div class="callout design">
+<span class="label">Two honest caveats</span>
+<p><strong>Embeddings stay local</strong>, and that's a feature: your document vectors, vector store, and calibrated threshold stay valid, and your corpus never leaves the machine. Chat to the cloud, retrieval at home, a genuinely good hybrid. Moving embeddings to a hosted model changes vector spaces: re-ingest (bump <code>CHUNK_LOGIC_VERSION</code>) and <a href="similarity-threshold.html">recalibrate</a>. <strong>And the meter is back</strong>: every turn resends the conversation, and every guardrail probe costs real money.</p>
+</div>
+
+<p>The workflow this whole series prepared you for: develop and iterate locally for free, swap three lines for the deployment that needs frontier quality. Keep the local config in a comment; you'll toggle back constantly. And per <a href="bigger-models.html">bigger models</a>, the guardrails all stay.</p>
+
+<h2 id="more-servers">More MCP servers</h2>
+
+<p>One server taught the pattern; the pattern was built for many. Generalizing is bookkeeping: hold several <code>(client, schemas, names)</code> sets, merge the schemas, route by whichever names-set claims a call.</p>
+
+<p>The interesting problems at N servers are architect problems. <strong>Name collisions</strong>: two servers both exposing <code>search</code>, disambiguated by prefixing or by curating what you forward. <strong>Trust tiers</strong>: a server you wrote, a vendor's, and something from a community registry don't deserve equal standing, and description text from low-trust servers lands in your model's context, which is an injection surface. <strong>Context budget</strong>: every discovered tool's schema ships with every model call, so a forty-tool server taxes every turn whether or not the model uses any of them. Curate; don't just connect.</p>
+
+<h2 id="persistence">Persisting conversations</h2>
+
+<p><code>run_agent</code> starts fresh every call because <code>messages</code> is built inside it. Real assistants remember. The message list is plain JSON-serializable data, so persistence is structurally easy, but two design points deserve care: compaction becomes essential rather than optional (a conversation living for weeks won't fit any context window), and guardrail state must persist with the transcript. <code>retrieved_pages</code> especially, because a resumed conversation that forgot what it retrieved will flag every citation from yesterday as a hallucination.</p>
+
+<h2 id="streaming">Streaming</h2>
+
+<p>This series printed answers when they finished, which is right for reading traces and wrong for users watching a spinner. The wrinkle worth knowing before you start: <em>tool calls stream too</em>, arriving as incremental argument fragments you assemble before dispatching. The loop's logic doesn't change, but the tidy "message in, message out" turn structure becomes an accumulation state machine. Budget an afternoon, not an hour.</p>
+
+<h2 id="multi-agent">Multi-agent architectures</h2>
+
+<p>Strip the vocabulary away and a "multi-agent system" is agents-as-tools: a coordinator loop whose tool schemas happen to invoke other loops. A researcher agent delegating to a summarizer is <code>run_agent</code> calling something that calls <code>run_agent</code>: one more entry in a dispatch table, one more seam.</p>
+
+<p>Which means everything from <a href="why-guardrails.html">Part 2</a> applies at every level. Each inner agent needs its own termination backstop (<code>max_turns</code> compounds across nesting). The coordinator needs discipline about trusting sub-agent output, since an inner agent's answer is a tool result, exactly as unverified as any other. And <a href="guardrails-together.html">the composition lesson</a> applies with interest, because now entire <em>agents</em> are the components interacting in untested ways.</p>
+
+<h2 id="frameworks">Frameworks: when to adopt one, and how to read one</h2>
+
+<p>This series skipped frameworks for visibility, not disdain. You built the loop bare so nothing could hide. That job is done, and adopting a framework now is an ordinary engineering decision you're unusually equipped to make, because <strong>every agent framework contains the loop you wrote, wearing different clothes</strong>.</p>
+
+<div class="callout takeaway">
+<span class="label">The evaluation lens</span>
+<p>Reading any framework's docs, ask: Where's the loop, and can I see a turn? Where's the seam between "the model asked for a tool call" and "run it," and can I put my own code there? When the model ignores an instruction, what catches it, structure or a politely worded request? What exactly is in the context each turn, since somebody's compaction policy is running whether or not the docs mention one?</p>
+</div>
+
+<p>Applied to the current landscape, as of this writing:</p>
+
+<p><strong>LangGraph</strong> (the agent-focused core of LangChain) makes the loop explicit as a state graph: your <code>for turn in range(max_turns)</code> becomes nodes and conditional edges, which pays off when the workflow genuinely branches, needs checkpointing mid-run, or requires human approval between turns. Of the majors, its abstraction is the most honest about being a loop.</p>
+
+<p><strong>CrewAI</strong> is role-based multi-agent: define a crew with goals and tool sets and let them collaborate. Reread <a href="#multi-agent">multi-agent</a> above and you see through it immediately: agents-as-tools with personas, fast to prototype, with every question about inner-loop termination and sub-agent trust still live.</p>
+
+<p><strong>Microsoft's tooling</strong> (AutoGen and Semantic Kernel, converging into the Microsoft Agent Framework) targets multi-agent conversation patterns and enterprise .NET/Azure shops. If your organization is a Microsoft shop, this is the gravity well you'll evaluate whether you like it or not, so evaluate it with the lens rather than the deck.</p>
+
+<p><strong>Pydantic AI</strong> is the lightweight one: typed, schema-validated agent responses. You already believe in its core idea; it's <a href="mcp-client.html#invocation">normalize-at-the-boundary</a> productized, with the "whatever happens, the caller sees the promised shape" contract enforced by types.</p>
+
+<p><strong>Vendor SDKs</strong> (OpenAI's Agents SDK, Anthropic's Claude Agent SDK) are the loop plus handoffs plus platform tooling, thinner and easier to see through. <strong>LlamaIndex</strong> sits beside all of it as the retrieval specialist: <a href="knowledge-base.html">the knowledge base page</a> as a mature product, with fifty chunking strategies where you wrote one.</p>
+
+<p>What a good framework buys you is the commodity plumbing this series waved past: retries and backoff, streaming assembly, persistence, checkpointing, provider abstraction, and observability. That last one deserves its own line: "the trace is the product" grows up into tracing platforms (LangSmith, Langfuse, OpenTelemetry-based tooling), and once an agent has users, searchable production traces stop being optional. There's a parallel ecosystem for guardrails too (NVIDIA NeMo Guardrails, Guardrails AI, Meta's Llama Guard as a sibling of Granite Guardian); evaluate those exactly as <a href="input-guardrails.html">input screening</a> taught: what's deterministic, what's a model judging, and what happens when the judge is unavailable.</p>
+
+<p>What a framework costs you is what this series just spent fifteen pages giving you: nothing hides in a file you wrote, and something always hides in a dependency. You'll debug through someone else's abstraction at the worst possible moment, and agent frameworks are young enough that major-version churn is a real line item.</p>
+
+<div class="callout takeaway">
+<span class="label">The heuristic</span>
+<p>Adopt a framework when your needs are boring in the best sense: checkpointing, streaming, tracing, retries, the things every agent needs and none differentiates on. Stay bare, or thin, when the control flow <em>is</em> the product. Either way, keep the guardrails yours: <a href="bigger-models.html#ledger">the risk ledger</a> is specific to your risk profile, and no dependency ships it. Framework names will churn. The four questions won't.</p>
+</div>
+
+<h2 id="evals">Evals: growing the ten-query habit</h2>
+
+<p>You already built an eval harness. <a href="similarity-threshold.html#eval-set">The labeled eval set</a> is real: labeled cases scored by the live pipeline with misclassifications flagged. And the designed probes in the standard run (the crypto question for the backstop, the injection string for pass 1, the pirate for pass 2) are behavioral test cases in everything but name.</p>
+
+<p>The production discipline is that habit at scale, run automatically: suites of labeled inputs with expected behaviors, executed against the real system on every change, because <strong>a prompt edit is a code change and deserves regression tests</strong>. <a href="why-guardrails.html#prompt-fix">The whack-a-mole problem</a> is why this matters more for agents than for ordinary software: fixing one unstated-negative case can quietly un-fix another, and without a suite you find out from a user.</p>
+
+<p>Tooling so you don't build the runner: promptfoo (config-driven suites, comfortable in CI) and DeepEval (pytest-style, evals as ordinary test functions) are the established starting points, and the tracing platforms above score live traffic against the same checks. One caution carries over intact: many eval metrics are LLM-as-judge underneath, with everything that implies. Prefer deterministic assertions wherever the behavior allows one ("the answer contains a <code>p.NN</code> citation," "the blocked-prompt response names the layer that fired"), and spend model-judged scoring on questions that genuinely require judging meaning. That's <a href="why-guardrails.html#the-principle">the principle</a>, applied to the tests instead of the system.</p>
+
+<h2 id="reading">Where to keep reading</h2>
+
+<p>Primary sources, deliberately few. <strong>modelcontextprotocol.io</strong> for the MCP spec and SDKs; the spec is short enough to actually read, and after <a href="mcp-client.html">the client page</a> you'll recognize everything in it. <strong>ollama.com/library</strong> for new local models, where tool-calling support is called out per model; both your chat and embedding models will be superseded within months, and the swap procedure is this page's first section minus the API key. IBM's Granite Guardian model cards document the full criteria list beyond <code>jailbreak</code>.</p>
+
+<div class="callout takeaway">
+<span class="label">What you actually built</span>
+<p>A set of reflexes. An agent is a loop you can read. A tool is a judgment taken out of the model's hands. A guardrail is code where a request would fail silently. A protocol is a seam you already had, standardized. Every system you evaluate from here sorts itself against those four sentences faster than any slide can talk.</p>
+</div>
+
+<nav class="pagenav">
+  <a class="prev" href="tips.html">← Tips &amp; Lessons</a>
+  <a class="next" href="troubleshooting.html">Troubleshooting →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

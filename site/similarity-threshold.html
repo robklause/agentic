@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calibrating a Similarity Threshold for RAG — Agentic AI from Scratch</title>
+<meta name="description" content="Don't guess your RAG similarity cutoff. Calibrate it from a labeled eval set scored by the live pipeline: real code, the midpoint method, an honest fallback when classes overlap, and why absent topics can outscore present ones.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html" aria-current="page">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Calibrating a Similarity Threshold</h1>
+
+<p class="lede">Reject weak retrieval matches before the model sees them, with a threshold measured from a labeled eval set instead of guessed from two lucky examples. This page has the full calibration code, because "how do I pick a similarity cutoff" is probably what brought you here, and the answer is: you don't pick. You measure.</p>
+<p class="builds-on">Builds on: <a href="knowledge-base.html">the RAG agent</a>. Full code: <a href="code.html">checkpoint chapter 7</a>. Reproducing these scores needs <a href="code/Marlow_and_Sage_Handbook.pdf">the same PDF</a>.</p>
+
+<h2 id="why-not-guess">Why you don't guess</h2>
+
+<p>The tempting shortcut: run one good query and one bad query, eyeball the scores, split the difference. That's overfitting to two data points, and embedding geometry punishes it specifically.</p>
+
+<div class="callout problem">
+<span class="label">The problem</span>
+<p>When a document genuinely answers a query, the gap is often clean. When it has <em>no</em> answer, there's no "unrelated" score to fall back to, because in a topically coherent corpus everything is somewhat related. Every chunk of an employee handbook is about employment. In one real calibration of this system, "loss prevention" (an entire real section) scored 0.598 on its best chunk while "parental leave" (zero real content) scored 0.639. The absent topic outscored the present one. No single cutoff separates those two.</p>
+</div>
+
+<p>Your exact scores will differ; they're a property of document, chunking, and embedding model together. The overlap phenomenon is general. The response isn't despair, it's measurement: a threshold is a classifier, so calibrate it like one.</p>
+
+<h2 id="eval-set">The eval set</h2>
+
+<p>Ten queries: five with confirmed answers in the handbook, five confirmed absent. Labels verified by grepping the extracted PDF text first, because an eval set labeled from what you <em>assume</em> the document covers calibrates to your assumptions, not your corpus.</p>
+
+<pre><code>EVAL_SET = [
+    # Confirmed present in the handbook (grep'd the extracted PDF text first)
+    ("How many PTO days do employees get?", True),
+    ("What is the dress code policy?", True),
+    ("What are the sales expectations for team members?", True),
+    ("What is the loss prevention policy?", True),
+    ("What are the store hours?", True),
+    # Confirmed absent from the handbook (zero matches on grep)
+    ("What is the company's policy on parental leave?", False),
+    ("Does the company offer remote work?", False),
+    ("What is the tuition reimbursement policy?", False),
+    ("Does the company offer stock options?", False),
+    ("Is there a gym membership benefit?", False),
+]</code></pre>
+
+<p>Note what the negatives are <em>not</em>: random off-topic strings. "How do I fly a helicopter" scores low against any handbook and teaches the threshold nothing. These negatives are plausible HR questions, the hard cases that produce the generically-related score band. Calibrate on the boundary you'll actually defend.</p>
+
+<h2 id="calibration">The calibration function</h2>
+
+<pre><code>SIMILARITY_THRESHOLD = None  # None = guardrail off
+
+
+def calibrate_similarity_threshold(eval_set: list = EVAL_SET, verbose: bool = True) -&gt; float:
+    """Run each labeled (query, expect_match) pair through real retrieval,
+    take the top-1 similarity score for each, and set SIMILARITY_THRESHOLD to
+    the midpoint between the lowest true-match score and the highest
+    true-non-match score — the biggest margin this eval set actually
+    supports, not a number pulled from one lucky/unlucky example.
+    """
+    global SIMILARITY_THRESHOLD, _kb_collection
+    if _kb_collection is None:
+        _kb_collection = ingest_pdf()
+
+    pos_scores, neg_scores, rows = [], [], []
+    for query, expect_match in eval_set:
+        result = _kb_collection.query(query_texts=[query], n_results=1, where={"type": "chunk"})
+        top_sim = round(1 - result["distances"][0][0], 3)
+        rows.append((query, expect_match, top_sim))
+        (pos_scores if expect_match else neg_scores).append(top_sim)
+
+    if pos_scores and neg_scores and min(pos_scores) &gt; max(neg_scores):
+        threshold = round((min(pos_scores) + max(neg_scores)) / 2, 3)
+    else:
+        # No clean separation in this eval set — the classes overlap, so any
+        # single threshold will misclassify something. Fall back to the
+        # midpoint of the overall score range rather than pretending a clean
+        # cutoff exists.
+        all_scores = pos_scores + neg_scores
+        threshold = round((min(all_scores) + max(all_scores)) / 2, 3) if all_scores else 0.6
+
+    SIMILARITY_THRESHOLD = threshold
+
+    if verbose:
+        print(f"\n--- calibrating similarity threshold from {len(eval_set)} labeled queries ---")
+        for query, expect_match, score in rows:
+            label = "match   " if expect_match else "no-match"
+            predicted = "match" if score &gt;= threshold else "no-match"
+            flag = "" if (score &gt;= threshold) == expect_match else "  &lt;-- MISCLASSIFIED at this threshold"
+            print(f"    expected={label}  sim={score:.3f}  predicted={predicted}{flag}  {query!r}")
+        if pos_scores:
+            print(f"    lowest true-match score:      {min(pos_scores):.3f}")
+        if neg_scores:
+            print(f"    highest true-non-match score: {max(neg_scores):.3f}")
+        print(f"    calibrated threshold: {threshold:.3f}")
+
+    return threshold</code></pre>
+
+<p>Three decisions to read closely. It scores through the <strong>real pipeline</strong> (real collection, real embedding function); calibrating against anything else measures a system you don't run. The happy path takes the <strong>midpoint of the actual margin</strong> the data demonstrated, not a round number that feels right. And the unhappy path <strong>refuses to lie</strong>: when classes overlap, no threshold is clean, so it falls back to the overall midpoint and prints every misclassification instead of manufacturing false precision.</p>
+
+<p>What a healthy run looks like (from a real run of this system; your scores will differ):</p>
+
+<pre class="trace"><code>--- calibrating similarity threshold from 10 labeled queries ---
+    expected=match     sim=0.378  predicted=match  'How many PTO days do employees get?'
+    ...
+    expected=no-match  sim=0.269  predicted=no-match  "What is the company's policy on parental leave?"
+    ...
+    lowest true-match score:      0.290
+    highest true-non-match score: 0.269
+    calibrated threshold: 0.279</code></pre>
+
+<p>All ten classified correctly, but look at the margin: 0.021. Clean and razor-thin. Ten queries is a starting point; keep adding real queries and recalibrating as they accumulate. The verbose table is the difference between "calibrated" as an inspectable claim and as a vibe.</p>
+
+<h2 id="enforcement">Enforcing it</h2>
+
+<p>In <code>search_knowledge_base</code>, the bare <code>return {"results": results}</code> becomes:</p>
+
+<pre><code>    if SIMILARITY_THRESHOLD is not None:
+        kept = [r for r in results if r["similarity"] &gt;= SIMILARITY_THRESHOLD]
+        if not kept:
+            return {
+                "results": [],
+                "note": (
+                    f"no chunk met the calibrated similarity threshold "
+                    f"({SIMILARITY_THRESHOLD:.3f}); best score was "
+                    f"{results[0]['similarity']:.3f} — likely not covered in this document"
+                ),
+            }
+        results = kept
+
+    return {"results": results}</code></pre>
+
+<div class="callout design">
+<span class="label">The design</span>
+<p>The rejection message is engineered, not incidental. It tells the model what the bar was, how close the best miss came, and offers the hypothesis "likely not covered in this document." A tool that can say <em>no, and here's why</em> is doing work that otherwise lands on the model's judgment.</p>
+</div>
+
+<p>Run the parental leave question now: one below-threshold rejection, and the model says the handbook doesn't cover it. Mostly. Sometimes it takes that clear rejection and searches again, and again, and that interaction between two individually-correct guardrails is the <a href="guardrails-together.html">next page</a>.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="output-guardrails.html">← Verifying Citations</a>
+  <a class="next" href="guardrails-together.html">Guardrails That Compose →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Merging Local and MCP Tools in One Agent Loop — Agentic AI from Scratch</title>
+<meta name="description" content="Discover MCP tools at runtime, merge them with local ones into a single list, and route each call to a dict lookup or the wire. Includes the connection-lifetime trap that respawns a subprocess per tool call.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html" aria-current="page">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Merging Local and MCP Tools</h1>
+
+<p class="lede">The finished system: your agent discovers the weather server's tools at startup, merges them with local ones into a single list, and routes each call to a dict lookup or a wire protocol without the model knowing there's a difference. Four small changes to the loop, none of them control flow.</p>
+<p class="builds-on">Builds on: <a href="mcp-server.html">the MCP server</a> and <a href="input-guardrails.html">the Part 2 agent</a>. Full code: <a href="code.html">the final checkpoint</a>.</p>
+
+<h2 id="async">The one real wrinkle: connection lifetime</h2>
+
+<div class="callout problem">
+<span class="label">The trap</span>
+<p>The MCP client SDK is async and your file is synchronous. The lazy fix: keep <code>run_agent</code> sync and wrap each MCP call in <code>asyncio.run(...)</code>. It runs. It also tears down the connection after every call, and for a stdio server <em>the connection owns the subprocess</em>. Every <code>get_weather</code> call spawns a fresh Python process, handshakes, makes one call, and kills it. The trace looks fine. The process table tells the truth.</p>
+</div>
+
+<div class="callout design">
+<span class="label">The design</span>
+<p>Open the connection once for the life of the run and thread it through. Same instinct as <code>_kb_collection</code> being a process-lifetime handle so Chroma isn't reconnected on every search. Concretely: <code>run_agent</code> becomes <code>async def</code>, and <code>main</code> opens one <code>async with</code> that everything runs inside.</p>
+</div>
+
+<p>The OpenAI SDK calls stay ordinary synchronous calls. They block the event loop during each model call, which is a non-issue for a single-user local demo and would be the opposite call for a service multiplexing conversations. Name the context, choose accordingly, write it down.</p>
+
+<h2 id="discovery">Discovery: schemas from the wire</h2>
+
+<pre><code>MCP_SERVER_PARAMS = StdioServerParameters(command="python3", args=["mcp_weather_server.py"])
+
+
+async def _discover_mcp_tools(mcp_client: Client) -&gt; tuple:
+    """Return (tool_schemas, tool_names) in the same shape TOOL_SCHEMAS uses."""
+    discovered = await mcp_client.list_tools()
+    schemas = [
+        {"type": "function", "function": {
+            "name": t.name,
+            "description": t.description,
+            "parameters": t.input_schema,
+        }}
+        for t in discovered.tools
+    ]
+    names = {t.name for t in discovered.tools}
+    return schemas, names</code></pre>
+
+<p>The translation amounts to relabeling: <code>list_tools()</code> hands back name, description, and <code>input_schema</code>, and that schema is <em>already JSON Schema</em>, the same dialect you hand-wrote. Wrapping it in the <code>{"type": "function", ...}</code> envelope is the entire adaptation. That near-zero cost isn't luck; both sides standardized on JSON Schema, which is a large part of why the ecosystem could form.</p>
+
+<p>The <code>names</code> set matters as much as the schemas: the model's <code>tool_calls</code> response carries only a tool <em>name</em>, with no hint where the tool lives, so the router needs its own memory of which names arrived via discovery.</p>
+
+<h2 id="invocation">Invocation: normalizing what comes back</h2>
+
+<pre><code>async def _call_mcp_tool(mcp_client: Client, name: str, args: dict) -&gt; dict:
+    """Normalize the result into the same plain-dict shape local tools return."""
+    result = await mcp_client.call_tool(name, args)
+    if result.is_error:
+        # An MCP tool that raises doesn't raise here — is_error is the signal.
+        text = next((b.text for b in result.content if isinstance(b, TextContent)), "unknown error")
+        return {"error": text}
+    if result.structured_content is not None:
+        return result.structured_content
+    # No structured_content (see the gotcha on the server page): the text
+    # block IS the JSON, so parse it rather than passing a raw JSON *string*
+    # through as if it were a value.
+    text = "\n".join(b.text for b in result.content if isinstance(b, TextContent))
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return {"result": text}</code></pre>
+
+<p>Three cases, one contract. Errors don't raise across the wire, so <code>is_error</code> becomes the same <code>{"error": ...}</code> dict your local tools have returned since <code>calculate</code>. Structured content is used when present. The fallback closes <a href="mcp-server.html#gotcha">the server-page gotcha</a>, with a final net for unparseable text.</p>
+
+<div class="callout takeaway">
+<span class="label">Takeaway</span>
+<p>Whatever happens on the wire, the loop sees the same plain dict it always has. Normalization at the boundary is what keeps the boundary invisible; anything that leaks past the adapter becomes a permanent tax on the core.</p>
+</div>
+
+<h2 id="loop-changes">The loop: four small changes</h2>
+
+<p><strong>1. Signature</strong> goes async and accepts the connection (all MCP params default to <code>None</code>, so a caller with no server still works, local-only):</p>
+
+<pre><code>async def run_agent(
+    user_prompt: str,
+    mcp_client: Client = None,
+    mcp_tool_schemas: list = None,
+    mcp_tool_names: set = None,
+    max_turns: int = 5,
+    verbose: bool = True,
+    compact_after: int = 6,
+) -&gt; str:</code></pre>
+
+<p><strong>2. The tool list</strong> the model sees becomes the merge:</p>
+
+<pre><code>        tools_for_this_turn = None if force_text_only else TOOL_SCHEMAS + (mcp_tool_schemas or [])</code></pre>
+
+<p><strong>3. Dispatch</strong> becomes a router, at the exact seam <a href="loop.html#the-loop">marked back in Part 1</a>:</p>
+
+<pre><code>            if mcp_tool_names and name in mcp_tool_names:
+                result = await _call_mcp_tool(mcp_client, name, args)
+                dispatch_via = "mcp"
+            else:
+                impl = TOOL_IMPLEMENTATIONS.get(name)
+                result = impl(**args) if impl else {"error": f"unknown tool {name}"}
+                dispatch_via = "local"</code></pre>
+
+<p><strong>4. The verbose print</strong> gains a provenance label, so the trace shows what the model can't see:</p>
+
+<pre><code>                print(f"--- turn {turn}: executing tool ({dispatch_via}) ---")</code></pre>
+
+<p>That's the whole conversion. The guardrails around these lines are character-for-character what they were. <a href="mcp-overview.html#the-seam">The seam claim</a>, kept.</p>
+
+<h2 id="startup">Startup: one connection, everything inside it</h2>
+
+<pre><code>async def main() -&gt; None:
+    ingest_pdf()
+    calibrate_similarity_threshold()
+
+    async with Client(stdio_client(MCP_SERVER_PARAMS)) as mcp_client:
+        mcp_tool_schemas, mcp_tool_names = await _discover_mcp_tools(mcp_client)
+        print(f"[mcp] connected — discovered tool(s): {sorted(mcp_tool_names)}")
+
+        for p in prompts:
+            answer = await run_agent(p, mcp_client=mcp_client,
+                                     mcp_tool_schemas=mcp_tool_schemas,
+                                     mcp_tool_names=mcp_tool_names)
+            print(f"AGENT: {answer}")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())</code></pre>
+
+<p>The <code>async with</code> block is the connection's lifetime: subprocess spawned and handshake spoken on entry, torn down on exit, every run threading through the one live client.</p>
+
+<h2 id="run-it">Run it</h2>
+
+<p>Startup now reads: ingest (or the skip line), the calibration table, then <code>[mcp] connected — discovered tool(s): ['get_weather']</code>. A tool your agent has never seen a schema for is in the model's list.</p>
+
+<p>The prompt to savor is the whole series in one turn: <em>"What's the weather in Austin, and is that temperature more than 3 times as warm as Seattle's?"</em> It drives <code>get_weather</code> twice, dispatched <code>(mcp)</code> across a process boundary, then <code>calculate</code> for 3 × 68 <code>(local)</code>, then <code>compare</code> for 101 against 204 <code>(local)</code>, because <a href="first-tools.html#compare">the model was taught never to eyeball a magnitude judgment</a>. Three tools, two sourcing mechanisms, one merged list, and the model treated them identically because from where it sits there's no difference to see.</p>
+
+<div class="callout takeaway">
+<span class="label">What you built</span>
+<p>Tools flowing from a local dict and from a real separate process over the actual wire protocol, indistinguishable to the model and to the rest of the agent loop, with every guardrail from Part 2 still in force.</p>
+</div>
+
+<nav class="pagenav">
+  <a class="prev" href="mcp-server.html">← Building an MCP Server</a>
+  <a class="next" href="tips.html">Tips &amp; Lessons →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

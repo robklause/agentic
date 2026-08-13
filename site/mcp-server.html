@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Building a Minimal MCP Server in Python — Agentic AI from Scratch</title>
+<meta name="description" content="A complete MCP server in about twenty lines: MCPServer, the @mcp.tool() decorator that derives your schema from type hints, stdio transport, and the structured_content gotcha you only catch by testing against a live server.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html" aria-current="page">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Building an MCP Server</h1>
+
+<p class="lede">A real MCP server in about twenty lines, serving one tool over the actual wire protocol as a separate process. Plus the one place the SDK's behavior diverges from what its docs imply, which you only find by testing against a live server.</p>
+<p class="builds-on">Builds on: <a href="mcp-overview.html">where MCP fits</a>. Needs: Python 3.10+ and <code>pip install mcp</code> (<a href="setup.html#python">see the version trap</a>). Full file: <a href="code.html">the server checkpoint</a>.</p>
+
+<h2 id="server">The server</h2>
+
+<p>Create <code>mcp_weather_server.py</code> next to your agent. This is the complete file, not an excerpt:</p>
+
+<pre><code>from mcp.server import MCPServer
+
+mcp = MCPServer(
+    "WeatherServer",
+    instructions="Provides current weather lookups for a small set of cities.",
+)
+
+FAKE_WEATHER = {
+    "austin": {"temp_f": 101, "condition": "sunny"},
+    "seattle": {"temp_f": 68, "condition": "cloudy"},
+    "new york": {"temp_f": 84, "condition": "humid"},
+}
+
+
+@mcp.tool()
+def get_weather(city: str) -&gt; dict:
+    """Get the current weather for a city."""
+    return FAKE_WEATHER.get(city.lower(), {"temp_f": 75, "condition": "unknown"})
+
+
+if __name__ == "__main__":
+    mcp.run()  # stdio by default — blocks, waiting for a client on stdin</code></pre>
+
+<p>Fake data deliberately: a real weather API would add an HTTP dependency and an API key to a page that's about neither. The interesting part is the plumbing, and fake data keeps it legible.</p>
+
+<h2 id="three-moves">Three moves, and what you're not writing</h2>
+
+<p><strong><code>MCPServer(...)</code></strong> declares the server. The <code>instructions</code> string is server-level context a client can surface to its model: a system-prompt fragment authored by the tool provider. One more place where <a href="first-tools.html#schemas">description text is quietly prompt engineering</a>.</p>
+
+<p><strong><code>@mcp.tool()</code></strong> is the entire registration story, and the omission is the point. In <a href="first-tools.html">Part 1</a>, every tool cost you a hand-typed JSON Schema block: name, description, properties, required fields. Here the SDK derives all of it by introspection: function name becomes the tool name, docstring becomes the description, type hints (<code>city: str</code>) become the parameter schema.</p>
+
+<div class="callout takeaway">
+<span class="label">Takeaway</span>
+<p>The <code>TOOL_SCHEMAS</code> half of bilateral integration work just became the server's job, done by a decorator. When the client calls <code>list_tools()</code>, the schema it receives is what this decorator generated.</p>
+</div>
+
+<p><strong><code>mcp.run()</code></strong> serves over stdio: JSON-RPC in on stdin, responses out on stdout. Stdio is what makes the local case clean, with no port, no TLS, no auth story, because the client owns the subprocess and its pipes. A remote server swaps this for HTTP transport; the tool code above it doesn't change.</p>
+
+<h2 id="run-by-hand">Run it by hand, once</h2>
+
+<pre><code>python3 mcp_weather_server.py</code></pre>
+
+<p>What you want here is an anticlimax: no import errors, no traceback, then nothing. The process sits blocked on stdin, waiting for a client to speak the protocol handshake. It'll wait forever; Ctrl+C to exit.</p>
+
+<div class="callout design">
+<span class="label">Not a hang</span>
+<p>Silence plus no traceback equals a working stdio server. Knowing that saves you from "it's frozen, something's broken" the first time. From the <a href="mcp-client.html">next page</a> on, your agent spawns this file as a subprocess and speaks the handshake for you.</p>
+</div>
+
+<h2 id="gotcha">The gotcha: verify the result shape against a live server</h2>
+
+<p>When a client calls a tool, the MCP result object offers two payload carriers: <code>content</code> (a list of content blocks) and <code>structured_content</code> (a parsed structured value). The SDK's happy-path examples read as though returning a dict populates <code>structured_content</code>.</p>
+
+<div class="callout problem">
+<span class="label">The real contract</span>
+<p>A plain <code>-&gt; dict</code> return type does <strong>not</strong> populate <code>structured_content</code>. It comes back <code>None</code>, and your dict gets JSON-serialized into a <em>text</em> content block: a string that merely looks like your data. Only a Pydantic <code>BaseModel</code> return type (or an explicitly declared output schema) produces populated <code>structured_content</code>.</p>
+</div>
+
+<p>This matters because of who's downstream. Tool results flow into <code>json.dumps</code> and then into the model's context. Pass the raw text block through as if it were the value and nothing crashes; the model just receives a JSON string inside a JSON string, quotes escaped, and gets measurably worse at reading it. The <a href="mcp-client.html#invocation">client on the next page</a> handles the real contract explicitly.</p>
+
+<div class="callout takeaway">
+<span class="label">The habit</span>
+<p>This came from calling the live server and inspecting the actual result object, not from the documentation. <strong>The docs describe the happy path; the running system defines the contract.</strong> Same move as verifying <a href="input-guardrails.html#pass2">Granite Guardian's score tag</a> against live output. Ten minutes with a live endpoint beats an afternoon debugging an assumption.</p>
+</div>
+
+<p>Why not just return a Pydantic model and take the happy path? Because your client shouldn't assume every MCP server it meets was written by someone who did. The parse-the-text fallback is what makes your client robust to the servers you <em>didn't</em> write, which is the entire point of speaking a standard protocol.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="mcp-overview.html">← Where MCP Fits</a>
+  <a class="next" href="mcp-client.html">Merging Local &amp; MCP Tools →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

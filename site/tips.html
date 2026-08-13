@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic AI Tips and Lessons Learned — Agentic AI from Scratch</title>
+<meta name="description" content="Two dozen hard-won lessons from building a local agent: model behavior, guardrail design, retrieval pitfalls, and engineering practice. Each entry standalone, with a link to the page that earned it.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html" aria-current="page">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Tips &amp; Lessons Learned</h1>
+
+<p class="lede">The whole series compressed for re-reading. Every entry is a standalone takeaway with a link to the page that earned it, written to still be useful a year from now on a system that looks nothing like this one.</p>
+<p class="builds-on">Builds on: nothing. Bookmark this page. Jump to: <a href="#behavior">model behavior</a> · <a href="#guardrails">guardrails</a> · <a href="#retrieval">retrieval</a> · <a href="#practice">engineering practice</a></p>
+
+<h2 id="behavior">On model behavior</h2>
+
+<p><strong>"Not mentioned" is not "confirmed no."</strong> The most dangerous RAG failure isn't invention from nowhere; it's the model converting a document's silence into a stated negative. It looks grounded, the retrieval happened, the citation is real, and the claim is manufactured. (<a href="why-guardrails.html#the-failure">Why guardrails</a>)</p>
+
+<p><strong>A prompt fix built from one example teaches the example, not the rule.</strong> Ban one unstated negative and the model finds a neighboring one. State general rules <em>as</em> general rules, say explicitly they aren't limited to the example, and sketch the category space. Expect reduction, not elimination. (<a href="why-guardrails.html#prompt-fix">Why guardrails</a>)</p>
+
+<p><strong>Audit what judgment remains after you delegate.</strong> A model given a calculator will compute 3 × 68 with the tool, then eyeball whether 101 exceeds 204 in its head. Every delegation has a residue. Finding and removing it, one judgment at a time, is what all these guardrails have in common. (<a href="first-tools.html#compare">First tools</a>)</p>
+
+<p><strong>Bigger models lower failure rates and eliminate no failure modes.</strong> Their rarer failures arrive more fluent, which makes them harder to catch by eye exactly as rising trust makes everyone look less carefully. Model quality and guardrails are multiplicative, not substitutes. (<a href="bigger-models.html#rates-vs-modes">Bigger models</a>)</p>
+
+<h2 id="guardrails">On guardrails</h2>
+
+<p><strong>Prompts are requests. Code is a guarantee.</strong> The design test for every reliability rule: if the model ignored this sentence, what catches it? If nothing, you have a request where you need a structure. The strongest structures don't detect the bad choice, they remove it from the menu. (<a href="why-guardrails.html#design-test">Why guardrails</a>, <a href="guardrails-together.html#backstop">backstops</a>)</p>
+
+<p><strong>What you can check syntactically, fix with code; what requires judging meaning, a prompt can only make less frequent.</strong> Cited page in the retrieved set: code. Similarity above threshold: code. Two empty searches: code. "Is this a reasonable inference or a fabrication": prompt, plus honesty about the residual rate. This one principle sorts nearly every reliability decision you'll face. (<a href="why-guardrails.html#the-principle">Why guardrails</a>)</p>
+
+<p><strong>A guardrail that prints "passed" may have verified nothing.</strong> A citation checker passes an answer with zero citations. For every check you build, ask what makes it <em>vacuously</em> pass, and either close that path or flag it separately. (<a href="output-guardrails.html#vacuous-pass">Verifying citations</a>)</p>
+
+<p><strong>Prefer precise-about-narrow over mushy-about-broad.</strong> Citation verification checks set membership exactly and says nothing about paraphrase faithfulness, deliberately, because a faithfulness checker would false-positive on honest restatements and teach you to ignore it. Trustworthiness is the entire product of a guardrail. (<a href="output-guardrails.html#design-decisions">Verifying citations</a>)</p>
+
+<p><strong>Test guardrails together, not just alone.</strong> Two individually correct layers composed into an infinite search loop. Component tests validate components; the failures live in the interactions. Keep designed probe inputs for each layer in your standard run. (<a href="guardrails-together.html#composition-failure">Guardrails that compose</a>)</p>
+
+<p><strong>A guardrail can look validated by luck.</strong> The termination backstop appeared to work while a junk chunk quietly prevented it from ever firing. When a protection "works," ask whether you've seen it fire for the reason you think it fires. (<a href="guardrails-together.html#junk-chunks">Junk chunks</a>)</p>
+
+<p><strong>A backstop keyed to a specific signal has a blind spot the failure can dodge; pair it with an unconditional bound.</strong> The empty-search counter never advances when reformulated queries keep matching semi-relevant chunks, so it can count correctly forever while turns burn. The countermeasure triggers on turn number alone: the last turn is always an answer turn. When termination matters, at least one layer should fire on count or time, not on a condition. (<a href="guardrails-together.html#backstop">Backstops</a>)</p>
+
+<p><strong>Calibrate thresholds from labeled data scored by the real pipeline; never eyeball them.</strong> Embedding similarity has no natural "no match" score: in a coherent corpus, an absent topic can outscore a present one. Build a small eval set, verify labels against the actual corpus, make the negatives <em>plausible</em> questions, and print the classification table with misclassifications flagged. (<a href="similarity-threshold.html#why-not-guess">Calibrating a threshold</a>)</p>
+
+<p><strong>Keep a written ledger of what your guardrails don't catch.</strong> This system ships with a known gap: a fabricated number with zero tool calls and zero citations passes every layer. Documented, reasoned, chosen. That's what separates a system whose risks are decided from one whose risks are discovered by users. (<a href="bigger-models.html#ledger">The known gap</a>)</p>
+
+<p><strong>LLM-as-judge is a different layer, not a better one.</strong> A guard model understands intent a regex can't, and costs latency, nondeterminism, and a new attack surface, since the judge itself reads attacker text. Layer by economics: free deterministic checks first, model judge on what clears them. Decide fail-open versus fail-closed deliberately, in writing. (<a href="input-guardrails.html#ledger">Input screening</a>)</p>
+
+<h2 id="retrieval">On retrieval</h2>
+
+<p><strong>Embed documents and queries with the same function, structurally.</strong> Two embedding models means two vector spaces and meaningless distances, and nothing errors: scores still look like numbers. Route both sides through one piece of code so the mistake is hard to write. (<a href="knowledge-base.html#embeddings">Knowledge base</a>)</p>
+
+<p><strong>Very short chunks are a correctness bug, not clutter.</strong> A two-or-three-word chunk scores inflated similarity against almost anything sharing common vocabulary (a bare "EMPLOYEE HANDBOOK" fragment hit 0.827 against an unrelated query). One junk chunk clearing your threshold can disarm guardrails layered far above it. (<a href="guardrails-together.html#junk-chunks">Junk chunks</a>)</p>
+
+<p><strong>Key derived-data caches on the logic that derives, not just the source bytes.</strong> Change chunking rules without changing the PDF and a bytes-keyed cache serves stale chunks while you believe your fix is live. Fold a version constant into the hash and bump it with the logic. (<a href="guardrails-together.html#stale-cache">The stale-cache trap</a>)</p>
+
+<h2 id="practice">On engineering practice</h2>
+
+<p><strong>Tools return errors as data, never as exceptions.</strong> A raised exception kills your loop; an <code>{"error": ...}</code> dict goes back to the model, which can read it and recover. The tool boundary talks to a counterparty that can't catch. (<a href="first-tools.html#calculate">First tools</a>)</p>
+
+<p><strong>Schema descriptions are prompt engineering.</strong> Not documentation: behavioral instruction. The difference between a tool used correctly and ignored can live entirely in that string. Doubly true for MCP, where the <em>server author</em> writes the description steering your model. (<a href="first-tools.html#schemas">Schemas</a>, <a href="mcp-server.html#three-moves">MCP server</a>)</p>
+
+<p><strong>The docs describe the happy path; the running system defines the contract.</strong> An MCP tool returning a plain dict leaves <code>structured_content</code> as <code>None</code>, with the JSON hiding in a text block, which you only learn by calling a live server. Same lesson as confirming a guard model's output tag before trusting your parser. (<a href="mcp-server.html#gotcha">The gotcha</a>)</p>
+
+<p><strong>Open one connection for the life of the run, not per call.</strong> Wrapping each MCP dispatch in its own <code>asyncio.run()</code> works, and silently respawns the server subprocess on every tool call. Expensive handles are process-lifetime resources. (<a href="mcp-client.html#async">Connection lifetime</a>)</p>
+
+<p><strong>Message lists have referential structure; edit them like it.</strong> Every tool result is paired by id to the assistant message that requested it, and a naive slice strands one half of the pair. Any history surgery must walk to a clean seam first. (<a href="knowledge-base.html#compaction">Compaction</a>)</p>
+
+<p><strong>Version mismatches surface as lies.</strong> <code>pip install mcp</code> on Python 3.9 says "no matching distribution," which reads like a network problem. When an install error makes no sense, check the interpreter before the network. (<a href="setup.html#python">Setup</a>)</p>
+
+<p><strong>Normalize at boundaries so the core stays ignorant.</strong> The MCP adapter converts every wire outcome into the same plain dict local tools return, which is why the loop never learned MCP exists. Anything that leaks past the adapter becomes a permanent tax on the core. (<a href="mcp-client.html#invocation">Normalization</a>)</p>
+
+<p><strong>The trace is the product while you're building.</strong> Every design decision here came from reading raw request/response traces, and every guardrail announces itself in them. Verbose mode costs nothing and is the only way to know what your agent actually did, as opposed to what its final answer implies it did. (everywhere)</p>
+
+<h2 id="one-sentence">The one-sentence version</h2>
+
+<div class="callout takeaway">
+<span class="label">All of it</span>
+<p>An agent is a loop; tools are its hands; guardrails are code holding every judgment the model shouldn't hold alone; MCP is a socket where the hands plug in.</p>
+</div>
+
+<nav class="pagenav">
+  <a class="prev" href="mcp-client.html">← Merging Local &amp; MCP Tools</a>
+  <a class="next" href="going-further.html">Going Further →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

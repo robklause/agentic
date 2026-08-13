@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Setup: Python, Ollama, and Local Models — Agentic AI from Scratch</title>
+<meta name="description" content="Install Python 3.10+, Ollama, and three local models (qwen3.5:9b, nomic-embed-text, granite4.1-guardian:8b) for building a local AI agent. Includes the misleading pip error to avoid and honest hardware expectations.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html" aria-current="page">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Setup &amp; Install</h1>
+
+<p class="lede">Everything the series needs: Python 3.10+, VS Code, Ollama, three models, four pip packages, and a test PDF. One version trap in here produces a genuinely misleading error, so don't skip the Python section even if your machine "already has Python."</p>
+<p class="builds-on">Builds on: nothing. This is the start. About 15 minutes of work plus model download time.</p>
+
+<h2 id="python">Python 3.10 or newer. Not optional.</h2>
+
+<p>The <code>mcp</code> SDK (used in Part 3) requires Python 3.10+. Many systems still ship 3.9.6 as the default <code>python3</code>.</p>
+
+<div class="callout problem">
+<span class="label">The trap</span>
+<p><code>pip install mcp</code> on Python 3.9 doesn't say "your Python is too old." It says <strong>"No matching distribution found"</strong>, which reads like a network problem or a typo. Check the interpreter before blaming the network.</p>
+</div>
+
+<pre><code>python3 --version              # 3.9.x? install a newer Python first
+python3.12 -m venv .venv
+source .venv/bin/activate
+python --version               # confirm 3.10+ inside the venv</code></pre>
+
+<h2 id="vscode">VS Code</h2>
+
+<p>Any editor works; this series assumes VS Code with the Python extension, pointed at the venv above (Command Palette → "Python: Select Interpreter"). You'll spend a lot of time reading trace output next to code, and a split pane makes that comfortable.</p>
+
+<h2 id="ollama">Ollama</h2>
+
+<p>Ollama serves open-weight models on <code>localhost:11434</code>. Install from <a href="https://ollama.com">ollama.com</a>, then confirm it's serving:</p>
+
+<pre><code>ollama serve   # "port in use" means it's already running — that's fine</code></pre>
+
+<p>The detail that makes the whole series work: Ollama exposes an <strong>OpenAI-compatible endpoint</strong> at <code>/v1</code>. The same <code>openai</code> SDK and tool-calling wire format that work against the cloud work unchanged against your laptop:</p>
+
+<pre><code>client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+# api_key is required by the SDK but ignored by Ollama</code></pre>
+
+<h2 id="models">The three models</h2>
+
+<p>Pull all three now; downloads are the slow part of setup.</p>
+
+<pre><code>ollama pull qwen3.5:9b               # chat model — the agent's brain
+ollama pull nomic-embed-text         # embedding model — powers search
+ollama pull granite4.1-guardian:8b   # guard model — input screening (optional)</code></pre>
+
+<table>
+  <tr><th>Model</th><th>Job</th><th>Used from</th></tr>
+  <tr><td><code>qwen3.5:9b</code></td><td>Runs the loop, calls tools, writes answers. On Apple Silicon, pull <code>qwen3.5:9b-mlx</code> instead (same model, faster on that hardware, Mac-only) and set <code>MODEL</code> to match.</td><td><a href="loop.html">The Loop</a></td></tr>
+  <tr><td><code>nomic-embed-text</code></td><td>Converts text to vectors for semantic search. Not a chat model.</td><td><a href="knowledge-base.html">Knowledge Base</a></td></tr>
+  <tr><td><code>granite4.1-guardian:8b</code></td><td>IBM's Granite Guardian: judges text against harm criteria like <code>jailbreak</code>. Optional; the system degrades gracefully without it.</td><td><a href="input-guardrails.html">Input Screening</a></td></tr>
+</table>
+
+<div class="callout design">
+<span class="label">If tool calling misbehaves</span>
+<p>Not every local model supports tool calling well. If your model ignores tools or hallucinates arguments instead of emitting a proper <code>tool_calls</code> response, try a model documented as tool-call capable (<code>gemma4:12b</code> is a solid alternative) before debugging your code.</p>
+</div>
+
+<h2 id="hardware">Hardware, and what to expect</h2>
+
+<p>This series was built on two machines that bracket the realistic range: a MacBook Pro with 16GB of RAM, and a workstation with 32GB of RAM plus a 16GB-VRAM GPU. Both run everything. Not at the same speed.</p>
+
+<p>Ollama keeps a model in memory while it fits. The chat and guard models are each roughly 5-6GB at default quantization (approximate; varies by version). On 32GB with a GPU, everything stays resident. On 16GB, Ollama evicts one model to load another, and each swap costs seconds before the first token appears.</p>
+
+<div class="callout takeaway">
+<span class="label">Takeaway</span>
+<p>A long pause after a model switch is a stall, not a hang. Best performance comes from more RAM plus a dedicated GPU, APU, or NPU; Apple Silicon unified memory sits in the middle (use the <code>-mlx</code> tags); CPU-only with 16GB works and asks for patience. Relief valves: <code>USE_LLM_GUARD = False</code> drops the guard model from the rotation, and a smaller chat model is fine while learning the mechanics.</p>
+</div>
+
+<h2 id="packages">Python packages</h2>
+
+<p>Create <code>requirements.txt</code> with exactly this, then <code>pip install -r requirements.txt</code> inside the venv:</p>
+
+<pre><code>openai&gt;=1.40.0
+chromadb&gt;=1.0.0
+pypdf&gt;=5.0.0
+mcp&gt;=2.0.0</code></pre>
+
+<p><code>openai</code> is the client SDK (pointed at Ollama). <code>chromadb</code> is the vector database. <code>pypdf</code> extracts PDF text. <code>mcp</code> is the Model Context Protocol SDK, and it's the package that silently demands Python 3.10+.</p>
+
+<h2 id="pdf">The knowledge base PDF</h2>
+
+<p>From the <a href="knowledge-base.html">Knowledge Base page</a> onward, the agent searches a real document: a 58-page employee handbook for a fictional boutique, Marlow &amp; Sage.</p>
+
+<p><strong>Download it here: <a href="code/Marlow_and_Sage_Handbook.pdf">Marlow_and_Sage_Handbook.pdf</a></strong> (92KB). Put it in the same directory as <code>agentic_demo.py</code>.</p>
+
+<p>Any comprehensive, sectioned PDF of 40+ pages works as a substitute, but the examples, page citations, and calibration queries all assume this one, so using it keeps everything reproducible (see <a href="code.html#handbook">substitution notes</a> if you swap). Toy three-paragraph examples hide every interesting retrieval problem, which is why the series uses a real document from the start.</p>
+
+<h2 id="layout">Project layout</h2>
+
+<pre><code>agentic/
+├── .venv/                        # Python 3.10+ virtual environment
+├── agentic_demo.py               # the agent — grows page by page
+├── mcp_weather_server.py         # the MCP server — Part 3
+├── requirements.txt
+├── Marlow_and_Sage_Handbook.pdf  # the knowledge base
+└── chroma_db/                    # created automatically on first ingest</code></pre>
+
+<p>Flat, two Python files. That's the honest size of this system.</p>
+
+<h2 id="smoke-test">Smoke test</h2>
+
+<pre><code>from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+
+response = client.chat.completions.create(
+    model="qwen3.5:9b",   # or qwen3.5:9b-mlx if that's what you pulled
+    messages=[{"role": "user", "content": "Reply with exactly: local stack is working"}],
+)
+print(response.choices[0].message.content)</code></pre>
+
+<p>A sentence back means the stack works and everything else is just code. Connection error: Ollama isn't running. Model not found: <code>ollama list</code> and compare the exact tag. More symptoms: <a href="troubleshooting.html">Troubleshooting</a>.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="index.html">← Overview</a>
+  <a class="next" href="loop.html">What Is an Agentic Loop →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Do You Still Need Guardrails with a Bigger Model? — Agentic AI from Scratch</title>
+<meta name="description" content="A frontier model lowers every failure rate and eliminates no failure mode, and its rarer hallucinations are harder to catch by eye. Why model quality and guardrails are multiplicative, plus the gap this system knowingly ships with.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html" aria-current="page">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>What Bigger Models Change</h1>
+
+<p class="lede">"Wouldn't a better model make all that guardrail work unnecessary?" No, and the reasons are worth having crisp, because you'll be giving them in meetings for years. No code on this page.</p>
+<p class="builds-on">Builds on: <a href="input-guardrails.html">the complete guardrail stack</a>. Pairs with: <a href="going-further.html#cloud">the three-line cloud swap</a>.</p>
+
+<h2 id="improves">What actually improves</h2>
+
+<p>Be fair to the question first. A frontier-scale cloud model genuinely improves things: fewer ignored instructions, fewer hallucinated qualifiers, better search phrasing, more reliable tool-call formatting, better citation-format adherence. Latency and context capacity improve too. And <a href="going-further.html#cloud">the swap is three lines</a>: base URL, API key, model name. Everything you built rides along unchanged.</p>
+
+<p>Every failure <em>rate</em> discussed on this site moves in the right direction. So why keep the guardrails?</p>
+
+<h2 id="rates-vs-modes">The rates move. The modes don't.</h2>
+
+<p>Because a bigger model reduces every failure rate and eliminates no failure <em>mode</em>. Frontier models still hallucinate, still convert silence into stated negatives, still garnish grounded answers with unsupported qualifiers. Less often. Not never. And your guardrails aren't priced in "often": the citation check exists for the one answer in fifty with an invented page, and one-in-fifty at production volume is a daily event.</p>
+
+<div class="callout problem">
+<span class="label">The less obvious effect</span>
+<p>A better model's failures are <em>harder</em> to catch, not easier. A small model's hallucinations are often clumsy: odd phrasing, formatting drift, non sequiturs that snag a reviewer's eye. A frontier model's rare hallucination arrives polished, confident, wearing the same style as its hundred correct neighbors. The signal your reviewers used degrades exactly as rising trust makes everyone review less carefully.</p>
+</div>
+
+<p>Structural checks don't have that problem. <code>_check_citation_grounding</code> verifies set membership identically whether the answer came from a 9B model or the largest thing money rents. That indifference to fluency is precisely what makes it valuable when fluency stops being a tell.</p>
+
+<div class="callout takeaway">
+<span class="label">The stakeholder answer</span>
+<p>Model quality and guardrails aren't substitutes; they're multiplicative. The model sets the error rate; the guardrails determine what escaping errors can <em>do</em>. Upgrade the model to make flags rarer. Keep the guardrails so "rarer" never silently becomes "invisible."</p>
+</div>
+
+<p>It cuts the other way too: guardrails are what make the <em>small</em> model usable. An unguarded 9B agent is a liability; the guarded system is trustworthy enough to demo, precisely because its checkable failures get checked. Guardrails lower the model quality you need, which on this project's economics is the difference between free-on-your-laptop and metered.</p>
+
+<h2 id="ledger">The gap this system knowingly ships with</h2>
+
+<p>Part 2 closes with a disclosure rather than a triumph, because writing down what your guardrails <em>don't</em> catch is worth more than any individual guardrail.</p>
+
+<div class="callout problem">
+<span class="label">The known gap</span>
+<p>Ask a numeric question the agent decides to answer from pure training memory: no tool calls, no retrievals, no citations. A fabricated number sails through everything. Input guardrails screen for injection, not fabrication. The <a href="similarity-threshold.html">similarity threshold</a> never fires because search was never called. The <a href="guardrails-together.html#backstop">backstop</a> counts empty searches; there were none. The <a href="output-guardrails.html">citation check</a> finds no unverified citations, and its zero-citation clause only triggers when something <em>was</em> retrieved. Every layer reports clean. The answer is invented.</p>
+</div>
+
+<p>The system prompt addresses this ("if you haven't called a tool for a number, leave it out") and by now you can name that instrument on sight: a request. The structural version would verify that numeric claims trace to tool results, and this system deliberately declined to build it. That's a defensible judgment, not an oversight: a model paraphrasing "10 days per year" as "ten days annually" false-positives any naive text match, so a trustworthy version means fragile matching that cries wolf or another model-as-judge layer with its own costs. For this threat profile, a documented gap beat a noisy guardrail.</p>
+
+<div class="callout takeaway">
+<span class="label">The habit to keep</span>
+<p>Maintain an explicit, current list of known gaps with reasoning. That's what separates a system whose risks are <em>chosen</em> from one whose risks are discovered by users. When a stakeholder asks "is it safe?", the strong answer isn't "yes." It's "here's what's checked, here's what isn't, and here's why we drew the line there."</p>
+</div>
+
+<nav class="pagenav">
+  <a class="prev" href="input-guardrails.html">← Input Screening</a>
+  <a class="next" href="mcp-overview.html">Where MCP Fits →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

@@ -1,0 +1,64 @@
+Creative Commons Attribution 4.0 International (CC BY 4.0)
+
+Copyright (c) 2026 Rob Klause
+
+This license applies to the PROSE AND DOCUMENTS in this repository. See LICENSE
+(MIT) for the software. "Content" means:
+
+  - the book chapters and appendices in book/ (the .md files)
+  - the written text of the website pages in site/ (the .html files)
+  - Marlow_and_Sage_Handbook.pdf, the fictional employee handbook
+
+Code samples embedded in the prose are NOT covered here. They are MIT-licensed,
+so you can reuse them without attribution obligations.
+
+---
+
+WHAT YOU MAY DO
+
+You are free to share (copy and redistribute in any medium or format) and adapt
+(remix, transform, and build upon) this content for any purpose, including
+commercially, provided you give appropriate credit.
+
+ATTRIBUTION
+
+Give credit substantially as follows:
+
+  "Agentic AI from Scratch" by Rob Klause, licensed under CC BY 4.0.
+  https://agentic.koidev.us
+
+Indicate if you made changes. You may not suggest the author endorses you or
+your use.
+
+FULL LICENSE TEXT
+
+The complete legal code is at:
+https://creativecommons.org/licenses/by/4.0/legalcode
+
+A plain-language summary is at:
+https://creativecommons.org/licenses/by/4.0/
+
+Creative Commons does not require the full license text to be reproduced; a
+clear notice with a link to the license is sufficient to apply it.
+
+---
+
+A NOTE ON AI-GENERATED PORTIONS
+
+The prose in this repository was drafted with substantial AI involvement, as
+described in the book's introduction and title page. Under current U.S. law,
+purely AI-generated expression may not be subject to copyright, and copyright
+in such a work extends only to the human contributions (selection, arrangement,
+structure, editing, and original human-authored passages).
+
+This license is therefore granted to the extent that copyright subsists in the
+content, and is not an assertion that every sentence is protected. Where no
+copyright subsists, no permission from the author is needed.
+
+This note is offered in the same spirit as the book's own habit of writing down
+what it doesn't know. It is not legal advice.
+
+NO WARRANTY
+
+The content is provided "as is", without warranty of any kind. The author is
+not liable for any claim, damages, or other liability arising from its use.

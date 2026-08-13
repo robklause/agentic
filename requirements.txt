@@ -1,0 +1,4 @@
+openai>=1.40.0
+chromadb>=1.0.0
+pypdf>=5.0.0
+mcp>=2.0.0

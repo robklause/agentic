@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agentic AI from Scratch — Build a Local Agent with Ollama and Python</title>
+<meta name="description" content="A free, hands-on guide for solution architects: build a real agentic AI system on your laptop with Ollama and Python. The loop, tool calling, RAG, layered guardrails, and MCP. No API credits required.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html" aria-current="page">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<div class="hero">
+  <h1>Agentic AI from Scratch</h1>
+  <p class="sub">Build a local agent with Ollama and Python, from the loop to guardrails to MCP.</p>
+</div>
+
+<p class="lede">An agent is just a loop. You send a model a prompt plus a list of tools it's allowed to call. It replies with a request like <code>get_weather(city="Austin")</code>, your code runs the function, feeds the result back, and the model continues until it answers in text. That's the entire mechanism. This site teaches it by building one real system, end to end, on your own machine.</p>
+
+<div class="cta-row">
+  <a class="button" href="setup.html">Start with Setup</a>
+  <a class="button secondary" href="code.html">Grab a code checkpoint</a>
+</div>
+
+<h2>What you'll build</h2>
+
+<p>One Python file that grows page by page into an agent that:</p>
+
+<ul>
+  <li>Answers questions from a real 58-page PDF handbook, ingested into a persistent vector database with page-level source tracking</li>
+  <li>Refuses to hallucinate: a calibrated retrieval threshold, a citation verifier, and a structural backstop that guarantees every run ends in a real answer</li>
+  <li>Screens incoming prompts through two input guardrails, a free regex pass and a purpose-built guard model, before the main model ever sees them</li>
+  <li>Calls tools from two sources at once: local Python functions and a live MCP server in a separate process, indistinguishable to the model</li>
+</ul>
+
+<p>Two files, no framework. When a vendor says "our platform handles agent orchestration," you'll know exactly what's behind that sentence, because you built it.</p>
+
+<h2>Why local-first</h2>
+
+<p>Everything here runs through <a href="https://ollama.com">Ollama</a> on your own hardware. No API keys, no credits, no rate limits, no data leaving your laptop.</p>
+
+<p>That matters twice. Agent development is iterative in a way that punishes metered APIs: you'll rerun the same loop dozens of times watching one change shift behavior, and locally a hundred runs cost nothing. And with no hosted framework hiding the loop, you see everything: every message, every tool call, every guardrail firing, in a trace you can read.</p>
+
+<p>When you're ready for a cloud model, the swap is three lines. <a href="going-further.html">Going Further</a> shows it.</p>
+
+<h2>Who this is for</h2>
+
+<p>Solution architects, cloud architects, and technical leads who know APIs, distributed systems, and Python, but haven't built an LLM agent from the wire up. LLM-specific ideas (embeddings, tool calling, context windows) are explained the first time they matter on each page, so you can land anywhere and orient fast.</p>
+
+<h2>How to use this site</h2>
+
+<p><strong>Reading straight through?</strong> Start at <a href="setup.html">Setup</a> and follow the next-page links; the sequence mirrors the book this site is adapted from, and the code accumulates page by page.</p>
+
+<p><strong>Landed here for one thing?</strong> Every page stands alone. The most-searched-for pages: <a href="similarity-threshold.html">calibrating a similarity threshold</a>, <a href="guardrails-together.html">why guardrails fail in combination</a>, <a href="input-guardrails.html">prompt-injection screening with a guard model</a>, <a href="mcp-server.html">building a minimal MCP server</a>, and <a href="troubleshooting.html">troubleshooting by symptom</a>.</p>
+
+<p><strong>Joining mid-sequence?</strong> The <a href="code.html">code checkpoints</a> give you a runnable, known-good file for the end of any construction chapter. Download, rename, run.</p>
+
+<h2>The book</h2>
+
+<p>This site is the reference adaptation of <em>Agentic AI from Scratch</em> by Rob Klause. The book tells the same story linearly, with fuller reasoning behind each design decision; the site is built for landing, scanning, and getting unstuck.</p>
+
+<nav class="pagenav">
+  <a class="next" href="setup.html">Setup &amp; Install →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

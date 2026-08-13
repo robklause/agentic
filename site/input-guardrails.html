@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Input Guardrails: Regex Screening plus Granite Guardian — Agentic AI from Scratch</title>
+<meta name="description" content="Two-pass prompt-injection screening for a local agent: a free deterministic regex pass, then IBM's Granite Guardian judging intent. Includes the pirate false positive, fail-open reasoning, and honest LLM-as-judge limits.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html" aria-current="page">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Input Screening</h1>
+
+<p class="lede">Two layers screen every prompt before the main model sees it: a free, instant regex pass for unambiguous injection attempts, and a purpose-built guard model for the cases a pattern can't judge. A flagged prompt never reaches Ollama at all, which makes this structurally the strongest guardrail in the system.</p>
+<p class="builds-on">Builds on: <a href="guardrails-together.html">the composed guardrails</a>. Needs: <code>granite4.1-guardian:8b</code> pulled (optional). Full code: <a href="code.html">checkpoint chapter 9</a>, the complete Part 2 system.</p>
+
+<h2 id="two-problems">Two problems wearing one name</h2>
+
+<p>"Prompt injection" covers two attack surfaces that deserve separate threat-model entries. The famous one is the user's own prompt: "ignore your previous instructions," jailbreak personas, system-prompt extraction. The subtler one, and for RAG systems the more real one, is injection through <em>retrieved content</em>: your knowledge base is attacker-controlled input, and a document containing "disregard your rules" gets retrieved by an innocent query wearing the authority of a trusted tool result.</p>
+
+<p>This page defends against the first. The second gets named honestly rather than solved: this system's corpus is one PDF you control. If your production corpus accepts uploads, wikis, or emails, retrieved-content injection belongs on your risk register with real mitigations. Knowing which problem you've solved, and which you've only named, is the discipline.</p>
+
+<h2 id="pass1">Pass 1: the pattern list</h2>
+
+<pre><code>INJECTION_PATTERNS = [
+    (r"ignore (all |any |the )?(previous|prior|above|preceding) instructions", "instruction override"),
+    (r"disregard (all |any |the )?(previous|prior|above|preceding) (instructions|rules|prompt)", "instruction override"),
+    (r"you are (now|no longer) (a|an)\b", "role override"),
+    # A bare "pretend (you are|to be)" match would false-positive on
+    # harmless roleplay like "pretend to be a pirate and tell me a joke."
+    # Require the roleplay request to be paired with safety-bypass language.
+    (r"pretend (you are|to be)\b.{0,60}(no (restrictions|rules|filters|guardrails)|"
+     r"without (any )?(restrictions|rules|filters|guardrails)|unfiltered|no limits)", "role override"),
+    (r"no (restrictions|rules|filters|guardrails)", "safety bypass"),
+    (r"(reveal|show|print|repeat) (your |the )?(system prompt|instructions)", "system prompt extraction"),
+    (r"what (are|is) your (system prompt|instructions|rules)", "system prompt extraction"),
+    (r"\bDAN\b|do anything now", "known jailbreak persona"),
+]
+
+
+def _check_prompt_injection(user_prompt: str) -&gt; list:
+    """Runs against untrusted input, before the prompt joins any message list."""
+    hits = []
+    for pattern, label in INJECTION_PATTERNS:
+        m = re.search(pattern, user_prompt, flags=re.IGNORECASE)
+        if m:
+            hits.append((label, m.group(0)))
+    return hits</code></pre>
+
+<div class="callout design">
+<span class="label">The instructive pattern</span>
+<p>The fourth one, because of what it <em>doesn't</em> match. A bare <code>pretend (you are|to be)</code> blocks "pretend to be a pirate and tell me a joke": harmless roleplay, zero jailbreak intent. The narrowed version requires paired safety-bypass language within 60 characters, because that pairing is what distinguishes an attack from whimsy. Every pattern should encode a claim about what attacks look like, not a vibe about suspicious words.</p>
+</div>
+
+<p>Be honest about this layer: a determined attacker routes around fixed patterns with paraphrase, and false positives exist at the margins ("ignore the store hours for a second..." trips the first pattern). The claim is "blocks the obvious stuff, for free, deterministically." A production system facing adversarial public traffic wants a learned classifier with a lower false-positive rate.</p>
+
+<h2 id="pass2">Pass 2: a model whose only job is judging</h2>
+
+<p>The pirate prompt motivates the second layer: too ambiguous for a regex, obvious to anything that understands intent. Granite Guardian is IBM's model fine-tuned for exactly one job, judging text against named harm criteria (<code>jailbreak</code>, <code>violence</code>, <code>social_bias</code>, and others). Not a chat model asked to self-police: a specialist.</p>
+
+<p>The layering economics matter as much as the model: regex first because it's free and deterministic, Guardian only on prompts that already cleared it.</p>
+
+<pre><code>GUARD_MODEL = "granite4.1-guardian:8b"
+USE_LLM_GUARD = True  # set False to skip this pass (e.g. model not pulled yet)
+
+
+def _check_prompt_injection_llm(user_prompt: str, criteria: str = "jailbreak") -&gt; dict:
+    """"flagged" True means Guardian scored it &lt;score&gt;yes&lt;/score&gt;."""
+    try:
+        response = client.chat.completions.create(
+            model=GUARD_MODEL,
+            messages=[
+                {"role": "system", "content": criteria},
+                {"role": "user", "content": user_prompt},
+            ],
+        )
+        raw = response.choices[0].message.content or ""
+        match = re.search(r"&lt;score&gt;\s*(yes|no)\s*&lt;/score&gt;", raw, flags=re.IGNORECASE)
+        flagged = bool(match) and match.group(1).lower() == "yes"
+        return {"flagged": flagged, "raw": raw, "error": None}
+    except Exception as e:
+        # Fail open: couldn't get a verdict, don't block on that basis alone.
+        return {"flagged": False, "raw": "", "error": str(e)}</code></pre>
+
+<p>Protocol: criteria name as the system message, text under judgment as the user message, verdict in a <code>&lt;score&gt;yes/no&lt;/score&gt;</code> tag. Verify the tag against your live model's actual output before trusting the parse; structured-output contracts with models are contracts with a counterparty that didn't sign.</p>
+
+<div class="callout design">
+<span class="label">Fail open, deliberately</span>
+<p>If the Guardian call errors (model not pulled, Ollama down), this logs a warning and lets the prompt through on the regex verdict alone. Right for a single-user local system; a production deployment facing real attackers should probably fail closed. Neither answer is universal. What's non-negotiable is choosing deliberately and writing the choice down.</p>
+</div>
+
+<p>Both passes run at the very top of <code>run_agent</code>, before the message list is even built; a flagged prompt returns a block message naming which layer fired and inviting a rephrase (false positives deserve a path forward). Wiring in the <a href="code.html">chapter 9 checkpoint</a>.</p>
+
+<h2 id="ledger">The honest ledger on LLM-as-judge</h2>
+
+<p>It costs a second model call's latency per screened prompt. It's nondeterministic, which makes offline testing genuinely harder. And the judge itself ingests attacker text, so a crafted prompt could in principle manipulate the judge too. The trust boundary moves; it doesn't disappear. Layering is what makes it acceptable: deterministic pass in front, semantic pass behind, each covering the other's blind side.</p>
+
+<p>With this page done, count the layers on a single question: two input screens, a calibrated retrieval threshold, a grounding-hardened prompt, two termination backstops, and a citation verifier on the way out. Each one holds a judgment the model would otherwise hold alone.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="guardrails-together.html">← Guardrails That Compose</a>
+  <a class="next" href="bigger-models.html">What Bigger Models Change →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

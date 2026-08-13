@@ -1,0 +1,261 @@
+/* Agentic AI from Scratch — site stylesheet.
+   No dependencies, no webfonts, no JS required. Portable to any path. */
+
+:root {
+  --ink: #1e2227;
+  --muted: #5f6a75;
+  --bg: #ffffff;
+  --surface: #f6f4ef;
+  --border: #e3ded4;
+  --accent: #14606b;
+  --accent-ink: #0e4a53;
+  --code-bg: #161b22;
+  --code-ink: #e6edf3;
+  --callout-problem: #a2452e;
+  --callout-design: #14606b;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+/* ---------- header ---------- */
+
+header.site {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem 1.5rem;
+  padding: .9rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.brand {
+  font-weight: 700;
+  font-size: 1.05rem;
+  text-decoration: none;
+  color: var(--ink);
+  letter-spacing: .01em;
+}
+.brand span { color: var(--accent); }
+
+nav.quick { display: flex; gap: 1.1rem; flex-wrap: wrap; }
+nav.quick a {
+  text-decoration: none;
+  color: var(--accent-ink);
+  font-size: .95rem;
+  font-weight: 600;
+}
+nav.quick a:hover { text-decoration: underline; }
+
+/* ---------- layout ---------- */
+
+.wrap {
+  display: flex;
+  gap: 2.5rem;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+}
+
+main { flex: 1; min-width: 0; max-width: 46rem; }
+
+/* ---------- sidebar ---------- */
+
+nav.sidebar {
+  width: 250px;
+  flex-shrink: 0;
+  font-size: .88rem;
+  line-height: 1.5;
+}
+nav.sidebar .part {
+  margin: 1.1rem 0 .25rem;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+nav.sidebar ol { list-style: none; margin: 0; padding: 0; }
+nav.sidebar li { margin: .15rem 0; }
+nav.sidebar a { text-decoration: none; color: var(--ink); }
+nav.sidebar a:hover { color: var(--accent); text-decoration: underline; }
+nav.sidebar a[aria-current="page"] {
+  color: var(--accent-ink);
+  font-weight: 700;
+}
+
+/* ---------- typography ---------- */
+
+h1 { font-size: 1.9rem; line-height: 1.25; margin: 0 0 .5rem; }
+h2 { font-size: 1.3rem;  margin: 2.2rem 0 .6rem; }
+h3 { font-size: 1.05rem; margin: 1.6rem 0 .4rem; }
+h1, h2, h3 { letter-spacing: -.01em; }
+
+p { margin: 0 0 1rem; }
+
+.lede { font-size: 1.08rem; color: var(--ink); }
+.builds-on {
+  font-size: .88rem;
+  color: var(--muted);
+  margin: 0 0 1.6rem;
+  padding-bottom: 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.builds-on a { color: var(--accent-ink); }
+
+a { color: var(--accent-ink); }
+
+ul, ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+li { margin: .25rem 0; }
+
+strong { font-weight: 650; }
+
+/* ---------- code ---------- */
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .86em;
+  background: #eef0ee;
+  padding: .1em .35em;
+  border-radius: 4px;
+}
+
+pre {
+  background: var(--code-bg);
+  color: var(--code-ink);
+  padding: 1rem 1.2rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: .82rem;
+  line-height: 1.55;
+  margin: 0 0 1rem;
+}
+pre code { background: none; padding: 0; color: inherit; font-size: 1em; }
+
+/* trace output blocks */
+pre.trace { background: #24292e; color: #b5c0ca; }
+
+/* ---------- callouts ---------- */
+
+.callout {
+  border-left: 4px solid var(--callout-design);
+  background: var(--surface);
+  padding: .8rem 1.1rem;
+  margin: 0 0 1rem;
+  border-radius: 0 8px 8px 0;
+  font-size: .95rem;
+}
+.callout.problem { border-left-color: var(--callout-problem); }
+.callout .label {
+  display: block;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  margin-bottom: .25rem;
+}
+.callout.problem .label { color: var(--callout-problem); }
+.callout.design  .label { color: var(--callout-design); }
+.callout.takeaway {
+  border-left-color: var(--accent);
+  font-weight: 550;
+}
+.callout.takeaway .label { color: var(--accent); }
+.callout p:last-child { margin-bottom: 0; }
+
+/* ---------- tables ---------- */
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 1rem;
+  font-size: .92rem;
+}
+th, td {
+  text-align: left;
+  padding: .5rem .7rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th {
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+
+/* ---------- prev/next + footer ---------- */
+
+nav.pagenav {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 3rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--border);
+  font-size: .95rem;
+}
+nav.pagenav a { text-decoration: none; font-weight: 600; }
+nav.pagenav a:hover { text-decoration: underline; }
+nav.pagenav .next { margin-left: auto; text-align: right; }
+
+footer.colophon {
+  text-align: center;
+  font-size: .85rem;
+  color: var(--muted);
+  padding: 1.5rem;
+  border-top: 1px solid var(--border);
+}
+
+/* ---------- landing page extras ---------- */
+
+.hero { padding: .5rem 0 0; }
+.hero .sub {
+  font-size: 1.15rem;
+  color: var(--muted);
+  margin-top: .2rem;
+}
+.cta-row { display: flex; gap: .8rem; flex-wrap: wrap; margin: 1.4rem 0 .4rem; }
+.button {
+  display: inline-block;
+  padding: .55rem 1.1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 650;
+  font-size: .95rem;
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent);
+}
+.button.secondary {
+  background: transparent;
+  color: var(--accent-ink);
+  border-color: var(--border);
+}
+.button:hover { filter: brightness(1.08); }
+
+/* ---------- responsive ---------- */
+
+@media (max-width: 900px) {
+  .wrap { flex-direction: column; gap: 1.5rem; }
+  nav.sidebar {
+    width: auto;
+    order: 2;
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+  }
+  main { order: 1; }
+  body { font-size: 16px; }
+}

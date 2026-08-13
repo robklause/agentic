@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where MCP Actually Fits in an Agent Loop — Agentic AI from Scratch</title>
+<meta name="description" content="MCP replaces exactly two things in your agent: hand-typed tool schemas become list_tools(), and your dispatch dict becomes call_tool(). The control flow never changes. What that buys you, and the supply-chain caution.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html" aria-current="page">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Where MCP Fits</h1>
+
+<p class="lede">MCP (the Model Context Protocol) slots into exactly one seam of the loop you already built: the moment between "the model asked for a tool call" and "run it." Nothing about the control flow changes. What changes is where a tool's definition comes from and where it executes. No code on this page; it's the orientation that makes the next two pages small.</p>
+<p class="builds-on">Builds on: <a href="loop.html">the loop</a> and <a href="first-tools.html">hand-written tool schemas</a>. Next: <a href="mcp-server.html">build a server</a>.</p>
+
+<h2 id="problem">The problem MCP standardizes</h2>
+
+<p>Your agent has three tools, and you hand-built both halves of each: the implementation in a dict, the JSON Schema in a list. Fine for three tools you wrote. Now scale it the way an architect has to.</p>
+
+<p>Every team building an agent needs tools for the same systems: Jira, GitHub, Postgres, Slack, the data warehouse. Without a standard, every agent integrates every tool bilaterally, N agents times M tools, each pairing hand-typing schemas and writing glue against a different vendor API. You've seen this movie: it's why ODBC exists, why LSP exists.</p>
+
+<p>MCP's shape: a tool provider ships an <strong>MCP server</strong>, a process exposing tools over a standard wire protocol (JSON-RPC, over stdio locally or HTTP remotely). Any agent that speaks the protocol as a <strong>client</strong> can ask "what tools do you have?", get JSON Schema answers, and invoke them. Write the server once; every MCP-speaking agent can use it. The matrix becomes a bus.</p>
+
+<h2 id="the-seam">One seam, the same seam as always</h2>
+
+<p>Your loop does two things with tools today:</p>
+
+<pre><code># 1. Tell the model what exists: a hand-typed list, sent every turn.
+tools=TOOL_SCHEMAS
+
+# 2. Run what it asks for: a dict lookup, called in-process.
+impl = TOOL_IMPLEMENTATIONS.get(name)
+result = impl(**args)</code></pre>
+
+<p>MCP replaces the <em>source</em> behind each line:</p>
+
+<pre><code># 1. Tool definitions: discovered at runtime by asking the server.
+discovered = await mcp_client.list_tools()
+
+# 2. Execution: invoked across the process boundary.
+result = await mcp_client.call_tool(name, args)</code></pre>
+
+<div class="callout takeaway">
+<span class="label">The whole claim</span>
+<p>Hand-typed schemas become <code>list_tools()</code>. The dispatch dict becomes <code>call_tool()</code>. That's the entire footprint. The model still emits the same <code>tool_calls</code> JSON and neither knows nor cares that a schema was discovered rather than typed, or that a call crossed a process boundary.</p>
+</div>
+
+<p>Your guardrails don't care either: input screening ran before the loop started, the backstop counts search results wherever they came from, the citation check reads the final answer. Everything from <a href="input-guardrails.html">Part 2</a> rides through untouched.</p>
+
+<p>Hold that sentence and you can evaluate MCP as an architect rather than a reader of press releases: it isn't an agent framework, a reasoning layer, or a competitor to your loop. It's a standardized answer to two questions your loop was already asking, <em>what tools exist</em> and <em>how do I run one</em>.</p>
+
+<h2 id="buys">What it buys you</h2>
+
+<p><strong>Tools become deployable units.</strong> A tool in your dict shares your agent's process, Python version, dependencies, and crash domain. A tool behind an MCP server is a separate process with its own everything, rewritable in TypeScript tomorrow without your agent changing a character.</p>
+
+<p><strong>Discovery replaces documentation.</strong> <code>list_tools()</code> returns name, description, and input schema straight from the running server. Add a tool server-side and your agent sees it on the next connection. The <a href="first-tools.html#schemas">schema-as-prompt-engineering</a> lesson still applies; it just moves, because now the <em>server author</em> owns the description that steers your model.</p>
+
+<p><strong>Trust boundaries become explicit.</strong> You've treated the tool boundary as a trust boundary since <code>calculate</code> refused to <code>eval</code>. MCP makes it a process boundary with a wire protocol across it, which is where an architect can actually enforce things: what a server can see, what its process can reach, what happens when it dies. A dict entry can't be sandboxed. A subprocess can.</p>
+
+<div class="callout problem">
+<span class="label">The supply-chain caution</span>
+<p>An MCP server is a dependency whose tool descriptions enter your model's context and whose results arrive wearing the authority of trusted tool output. A malicious or compromised server is <a href="input-guardrails.html#two-problems">the retrieved-content injection problem</a> with a vendor logo. Connecting to a server is trusting its author; the protocol standardizes the plumbing, not the trustworthiness of what flows through it.</p>
+</div>
+
+<nav class="pagenav">
+  <a class="prev" href="bigger-models.html">← What Bigger Models Change</a>
+  <a class="next" href="mcp-server.html">Building an MCP Server →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

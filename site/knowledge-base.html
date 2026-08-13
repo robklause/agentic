@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adding a Knowledge Base: RAG with ChromaDB and Ollama — Agentic AI from Scratch</title>
+<meta name="description" content="Give a local agent a real knowledge base: chunk a PDF, embed it with nomic-embed-text, store it in ChromaDB, and expose semantic search as a tool. Plus history compaction for the context window bill that comes due.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html" aria-current="page">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Adding a Knowledge Base</h1>
+
+<p class="lede">RAG is a tool, exactly like a calculator: the model calls <code>search_knowledge_base("PTO days")</code>, your code returns relevant passages from a real document, and the model answers from those instead of from memory. This page ingests a 58-page PDF into ChromaDB and exposes semantic search to the agent.</p>
+<p class="builds-on">Builds on: <a href="first-tools.html">the two-tool agent</a>. Needs: <code>nomic-embed-text</code> pulled, <code>chromadb</code> + <code>pypdf</code> installed, and the PDF (<a href="code/Marlow_and_Sage_Handbook.pdf">download, 92KB</a>). Full code: <a href="code.html">checkpoint chapter 4</a>.</p>
+
+<h2 id="problem">The problem worth solving</h2>
+
+<div class="callout problem">
+<span class="label">The problem</span>
+<p>Ask the agent "how many PTO days do new employees get?" and it answers. Confidently. From nothing. It's seen thousands of handbooks in training, so it produces a plausible number with no connection to <em>your</em> handbook. Not ignorance: fluent fabrication.</p>
+</div>
+
+<p>The entire sophistication of RAG lives in one question: how does your code decide which passages are relevant? Keyword matching fails silently: users ask about "vacation days," the document says "PTO," zero overlap, zero results. Users don't share vocabulary with documents. They share meaning.</p>
+
+<h2 id="embeddings">Embeddings in one paragraph</h2>
+
+<p>An embedding model converts text into a vector (a long list of numbers) built so texts with similar meaning land near each other. "Vacation days" and "paid time off" produce nearby vectors despite sharing no words. Relevance becomes geometry: embed the query, embed every chunk, and the nearest chunks by cosine similarity win. That's semantic search, and <code>nomic-embed-text</code> does exactly this one thing.</p>
+
+<div class="callout problem">
+<span class="label">The classic RAG bug</span>
+<p>Documents and queries must be embedded with the <strong>same model</strong>. Two models means two vector spaces, and distances between them are meaningless. Nothing errors; scores still look like numbers. The fix is structural: route both through one function.</p>
+</div>
+
+<pre><code>class OllamaEmbeddingFunction(EmbeddingFunction):
+    """Chroma calls this both when documents are added and when a query
+    runs — using the same function for both is what keeps them comparable."""
+
+    def __init__(self) -&gt; None:
+        pass  # no state
+
+    def __call__(self, input: Documents) -&gt; Embeddings:
+        return [
+            client.embeddings.create(model=EMBED_MODEL, input=text).data[0].embedding
+            for text in input
+        ]</code></pre>
+
+<p>Register this class with the Chroma collection and Chroma itself calls it on both sides. Same function, same model, same vector space, enforced by structure rather than discipline.</p>
+
+<h2 id="pipeline">The ingestion pipeline</h2>
+
+<p>Four steps: extract, chunk, embed, store. The constants that shape it:</p>
+
+<pre><code>EMBED_MODEL = "nomic-embed-text"
+KB_PDF_PATH = "Marlow_and_Sage_Handbook.pdf"
+CHROMA_DB_DIR = "./chroma_db"     # persisted on disk — ingest once, reuse after
+COLLECTION_NAME = "handbook"
+CHUNK_SIZE = 1000                 # target characters per chunk
+CHUNK_OVERLAP = 150               # characters carried into the next chunk</code></pre>
+
+<p>The full pipeline is ~120 lines in the <a href="code.html">chapter 4 checkpoint</a>. The decisions that matter, per step:</p>
+
+<p><strong>Extraction</strong> (pypdf) keeps page numbers with the text, because every chunk carries a <code>p.NN</code> source tag, and <a href="output-guardrails.html">those tags become a guardrail's raw material</a>. It also strips the running header the PDF repeats on every page: a string on all 58 pages is pure noise that dilutes every chunk's vector toward the same average. Swapping in your own PDF? That strip regex is the line to change.</p>
+
+<p><strong>Chunking</strong> packs whole paragraphs into ~1000-character chunks instead of slicing at exact counts, so each chunk stays a coherent unit of meaning. The 150-character overlap exists for facts that straddle a boundary; without it, a sentence cut in half is invisible to search from both sides.</p>
+
+<p><strong>Ingestion caching</strong>: embedding a long document takes a minute-plus, so ingest is skipped when a hash of the PDF (plus a chunking-logic version number) is already indexed. The version number matters more than it looks; <a href="guardrails-together.html#stale-cache">the stale-cache trap</a> explains why.</p>
+
+<h2 id="search-tool">The search tool</h2>
+
+<pre><code>def search_knowledge_base(query: str, top_k: int = 3) -&gt; dict:
+    """Semantic search over the persistent Chroma collection. Lazily
+    ingests the PDF on first call in a process."""
+    global _kb_collection
+    if _kb_collection is None:
+        _kb_collection = ingest_pdf()
+
+    result = _kb_collection.query(
+        query_texts=[query],
+        n_results=top_k,
+        where={"type": "chunk"},  # exclude the cache-sentinel record
+    )
+    docs = result["documents"][0]
+    metas = result["metadatas"][0]
+    dists = result["distances"][0]
+
+    results = [
+        {"source": meta["source"], "text": doc, "similarity": round(1 - dist, 3)}
+        for doc, meta, dist in zip(docs, metas, dists)
+    ]
+    return {"results": results}</code></pre>
+
+<p>Each result carries three fields, and all three earn their keep later: <code>text</code> is what the model reads, <code>source</code> (like <code>Marlow_and_Sage_Handbook.pdf p.17</code>) is the citation <a href="output-guardrails.html">a guardrail will verify</a>, and <code>similarity</code> is the score <a href="similarity-threshold.html">a calibrated cutoff will filter on</a>.</p>
+
+<div class="callout problem">
+<span class="label">The loose thread</span>
+<p>Right now this returns the top 3 chunks <em>no matter how weak the matches are</em>. When the document has no answer, the model still receives three semi-related passages formatted exactly like a real answer. Part 2 exists because of what models do with that temptation.</p>
+</div>
+
+<p>The tool joins <code>TOOL_IMPLEMENTATIONS</code> and <code>TOOL_SCHEMAS</code> like any other, and the system prompt gains the matching push: always search before answering policy questions, only state facts from returned chunks, name the source, and say "I don't have that information" rather than guess.</p>
+
+<h2 id="compaction">The bill comes due: context bloat</h2>
+
+<div class="callout problem">
+<span class="label">The problem</span>
+<p>The chat API is stateless: the full message list is resent every turn. One search returns up to three ~1000-character chunks, and that payload gets resent on <em>every subsequent turn</em>. Two searches in, most of what you ship to the model is stale tool output.</p>
+</div>
+
+<div class="callout design">
+<span class="label">The design</span>
+<p>Compaction: collapse older tool exchanges into a one-line digest, keep the system prompt, the original question, and the most recent messages verbatim. It's a trade, not a win: the digest keeps the facts but drops exact wording.</p>
+</div>
+
+<p>One subtlety worth knowing even if you never touch the code: every <code>tool</code> result message is paired by id to the assistant message that requested it, and a naive slice can strand one half of the pair on the wrong side of the cut. The <code>_compact_history()</code> function in the <a href="code.html">checkpoint</a> walks the split point to a clean seam first. Message lists look like arrays; they have referential structure.</p>
+
+<h2 id="run-it">Run it</h2>
+
+<p>Ask something the handbook answers and watch the trace: an ingest line on first run (the skip message forever after), a search call, three chunks with <code>p.NN</code> sources and similarity scores, then an answer citing real accrual numbers from a real document.</p>
+
+<p>Then ask something it doesn't answer ("what's our parental leave policy?") and watch closely. Three semi-related leave chunks come back anyway, each wearing the authority of a real result. What the model does next is the opening problem of <a href="why-guardrails.html">Part 2</a>.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="first-tools.html">← Your First Tools</a>
+  <a class="next" href="why-guardrails.html">Why Guardrails →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

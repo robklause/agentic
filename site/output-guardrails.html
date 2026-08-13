@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Output Guardrails: Verifying LLM Citations in Code — Agentic AI from Scratch</title>
+<meta name="description" content="Stop trusting the model's citations: track which pages retrieval actually returned, parse the p.NN citations out of the answer, and compare sets. About forty lines, plus the vacuous-pass trap most citation checkers fall into.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html" aria-current="page">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Verifying Citations</h1>
+
+<p class="lede">The loop stops taking the model's word for its citations: track which pages search actually returned, parse which pages the answer cites, compare sets. About forty lines, and the first time the system trusts code over the model about anything.</p>
+<p class="builds-on">Builds on: <a href="knowledge-base.html">the RAG agent</a> with <a href="why-guardrails.html">the hardened prompt</a>. Full code: <a href="code.html">checkpoint chapter 6</a>.</p>
+
+<h2 id="gap">The gap being closed</h2>
+
+<div class="callout problem">
+<span class="label">The problem</span>
+<p>The system prompt asks the model to cite sources. That's a request. If the model cites a page it never saw (from its training-data memory of what handbooks look like), nothing notices. A user reading "per p.23" can't tell whether page 23 was retrieved this conversation or invented this sentence.</p>
+</div>
+
+<p>Whether a cited page was actually retrieved is a syntactic question, and by <a href="why-guardrails.html#the-principle">the principle</a>, syntactic questions get answered in code.</p>
+
+<h2 id="tracking">Track, parse, compare</h2>
+
+<pre><code>def _extract_cited_pages(text: str) -&gt; set:
+    """Find 'p.NN' style page citations anywhere in text."""
+    return {int(n) for n in re.findall(r"\bp\.\s*(\d+)\b", text)}
+
+
+def _check_citation_grounding(answer: str, retrieved_pages: set) -&gt; list:
+    """Return any page numbers the answer cites that were never actually
+    retrieved this conversation — a hallucinated or misremembered citation.
+    """
+    cited = _extract_cited_pages(answer)
+    return sorted(cited - retrieved_pages)</code></pre>
+
+<p>The same extractor runs on both sides: on tool results to build the retrieved set (every result's <code>source</code> field carries its page), and on the final answer to build the cited set. When two things must agree, route them through one piece of code; it's the <a href="knowledge-base.html#embeddings">shared-embedding-function instinct</a> again.</p>
+
+<p>In <code>run_agent</code>: a <code>retrieved_pages = set()</code> before the loop, and after each search result lands, union in the pages from each result's <code>source</code>.</p>
+
+<h2 id="vacuous-pass">The trap inside the obvious version</h2>
+
+<div class="callout problem">
+<span class="label">The trap</span>
+<p>Ask what makes the obvious check print "passed." An answer with zero citations passes: nothing cited, nothing to flag. An answer citing "Section 5.3" instead of "p.18" passes: the regex finds no <code>p.NN</code>, empty set, green light. In both cases the guardrail verified <em>nothing</em> and reported success. A pass that had nothing to verify is false confidence with good UX.</p>
+</div>
+
+<p>So the check gets a second clause: if real content was retrieved and the answer contains zero page citations, that's a flag too. The full exit block:</p>
+
+<pre><code>        # Case 1: model is done — it returned a normal text answer.
+        if not message.tool_calls:
+            if verbose:
+                print(f"--- turn {turn}: no tool_calls -&gt; final answer, loop ends ---")
+
+            cited_pages = _extract_cited_pages(message.content or "")
+            unverified = _check_citation_grounding(message.content or "", retrieved_pages)
+            if unverified:
+                print(
+                    f"--- GUARDRAIL: answer cites page(s) {unverified} that were "
+                    f"never retrieved this conversation (retrieved: {sorted(retrieved_pages) or 'none'}) ---"
+                )
+            elif retrieved_pages and not cited_pages:
+                print(
+                    f"--- GUARDRAIL: real content was retrieved (pages {sorted(retrieved_pages)}) "
+                    f"but the answer contains zero page citations — cannot verify grounding ---"
+                )
+            elif verbose:
+                print(f"--- GUARDRAIL: citation check passed (retrieved: {sorted(retrieved_pages) or 'none'}) ---")
+
+            return message.content</code></pre>
+
+<p>The zero-citation clause needs a cooperating model: an answer must cite in a parseable format before the format can be verified. The system prompt gets strict, including the oddly specific clauses that turn out to be load-bearing:</p>
+
+<pre><code>Citation format is strict: every fact you state from the handbook —
+including facts you're citing only to explain that they DON'T answer
+the question — must be tagged inline with the literal page citation
+exactly as it appears in the chunk's source field, e.g. 'p.17'.
+Section numbers like 'Section 5.3' are not a substitute for the page
+citation; include the page citation every time, even alongside a
+section number.</code></pre>
+
+<div class="callout takeaway">
+<span class="label">The pattern</span>
+<p>Prompt shapes the output; code verifies it. Section numbers are the natural way a model summarizes a handbook chunk, and they're unverifiable by a page-tracking guardrail, so the prompt bends the model toward the format the code can check.</p>
+</div>
+
+<h2 id="design-decisions">Two design decisions worth defending</h2>
+
+<p><strong>Flag, don't block.</strong> The guardrail prints a warning and returns the answer anyway; in this system a human reads the trace, and the right response to a flagged citation is scrutiny. A production variant might retry or route to review. What matters architecturally: detection exists and is code. The response policy is a separate, swappable decision.</p>
+
+<p><strong>Citations only, not every claim.</strong> A fuller guardrail would check whether numeric claims appear in retrieved text, but a model paraphrasing "10 days per year" as "ten days annually" would false-positive as ungrounded. Paraphrase faithfulness means judging meaning, which is the prompt layer's job. Citations are the highest-confidence syntactic signal available: consistently formatted, explicitly requested, exactly verifiable. A guardrail that's precise about something narrow beats one that's mushy about something broad, because you can trust the narrow one's output.</p>
+
+<h2 id="ledger">What it doesn't catch</h2>
+
+<p>Keep the ledger honest. A fabricated claim wearing a <em>retrieved</em> page number sails through: the page checks out, the sentence doesn't. And an answer built purely from training memory (zero tool calls, zero citations) passes, because the zero-citation clause only fires when something was retrieved. That second gap gets named and deliberately accepted on <a href="bigger-models.html#ledger">the bigger-models page</a>. Writing down what a guardrail can't see is part of building it.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="why-guardrails.html">← Why Guardrails</a>
+  <a class="next" href="similarity-threshold.html">Calibrating a Threshold →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

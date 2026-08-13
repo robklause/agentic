@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>When Guardrails Compose: Backstops, Blind Spots, and the Stale-Cache Trap — Agentic AI from Scratch</title>
+<meta name="description" content="Two correct guardrails produced an infinite search loop. The fixes: a structural backstop (tools=None), an unconditional final-turn rule, a minimum chunk length, and a versioned cache key. Why guardrails must be tested together.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html" aria-current="page">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Guardrails That Compose</h1>
+
+<p class="lede">Two individually correct guardrails produced a new failure between them: an agent that couldn't stop searching. This page builds the structural fixes (a tools=None backstop, an unconditional final-turn rule, a chunk-length floor, a versioned cache key) and teaches the lesson that guardrails must be tested as a system, not as components.</p>
+<p class="builds-on">Builds on: <a href="similarity-threshold.html">the calibrated threshold</a>. Full code: <a href="code.html">checkpoint chapter 8</a>.</p>
+
+<h2 id="composition-failure">Two correct guardrails, one new failure</h2>
+
+<div class="callout problem">
+<span class="label">The problem</span>
+<p>Before the threshold existed, the model handled no-answer questions tolerably: it read three weak chunks, noticed they didn't answer, and said so. After the threshold, it receives a clean rejection note and sometimes responds by searching again. New phrasing, same rejection, until the turn budget dies and the user gets "Hit max_turns without a final answer": strictly worse than before.</p>
+</div>
+
+<p>The mechanics matter because the pattern recurs in every layered system. The threshold is correct: those chunks were weak. The model's reasoning isn't crazy: an empty result reads like "bad query," and reformulating is what diligent searchers do. Each component behaves. The failure lives in the interaction: the threshold changed what "no answer" looks like, from visible-but-weak chunks into a repeatable rejection that invites retry. Nobody wrote a retry loop. The system grew one.</p>
+
+<div class="callout takeaway">
+<span class="label">Takeaway</span>
+<p>Testing guardrails in isolation validates components, not the system. The threshold passed its calibration table; the citation check passed its cases; the infinite loop lived between them, invisible to both.</p>
+</div>
+
+<h2 id="prompt-request">The prompt request, and why it's not enough</h2>
+
+<p>First response, per the standing pattern: a "search discipline" rule in the system prompt (stop after two fruitless searches, answer with what you have). Clear rule, explicit trigger. And the model still, in some runs, sails past it with the instruction sitting right there in context.</p>
+
+<p>Run <a href="why-guardrails.html#design-test">the design test</a>: if the model ignores this sentence, what catches it? Nothing. So: structure.</p>
+
+<h2 id="backstop">The structural backstop, twice</h2>
+
+<p>The API accepts <code>tools=None</code>, and a model with no tool declarations cannot emit a tool call; the only legal move is text. That enforcement gets used twice: count consecutive empty searches and take tools away at two, and, unconditionally, never offer tools on the final turn.</p>
+
+<pre><code>    retrieved_pages = set()
+    consecutive_empty_searches = 0  # +1 per empty search result, reset on success
+
+    for turn in range(max_turns):
+        ...
+        # Empty-search backstop AND the unconditional final-turn rule:
+        force_text_only = consecutive_empty_searches &gt;= 2 or turn == max_turns - 1
+        tools_for_this_turn = None if force_text_only else TOOL_SCHEMAS</code></pre>
+
+<div class="callout design">
+<span class="label">Why two rules</span>
+<p>The counter has a blind spot: it only advances on <em>empty</em> results, and in a topically coherent corpus, reformulated searches rarely come back empty. A model hunting for the unanswerable half of a two-part benefits question keeps matching semi-relevant chunks in the generically-related score band, each non-empty result resets the counter, and every turn burns while the real answer sits retrieved in the transcript. The final-turn rule triggers on turn number alone, which no pattern of results can dodge: <strong>the last turn is always an answer turn.</strong></p>
+</div>
+
+<p>Read the philosophical change: the prompt tried to persuade the model away from the bad option. The backstop removes the option from the menu. Nothing to persuade, nothing to comply with; the model cannot call a tool that wasn't offered, the same way <code>calculate</code> cannot <code>eval</code> arbitrary code. When you need a guarantee, restructure the choice space; don't escalate the rhetoric.</p>
+
+<p>Keep the prompt rule anyway: when the model honors it, the agent concludes a turn earlier. The prompt improves the common case, the counter bounds the known worst case a turn early, and the final-turn rule bounds every worst case including the unimagined ones.</p>
+
+<p>One more piece of structure at the exit: a small model forced into a text-only turn occasionally returns an empty string. Never hand the user a blank answer:</p>
+
+<pre><code>            return message.content or "(the model returned an empty answer)"</code></pre>
+
+<h2 id="junk-chunks">The second composition bug: junk chunks</h2>
+
+<div class="callout problem">
+<span class="label">The problem</span>
+<p>Very short chunks hit an embedding-normalization artifact: with almost no content to dilute the match, a two-word chunk scores inflated similarity against nearly any query sharing common vocabulary. In this system's testing, a bare "EMPLOYEE HANDBOOK" title fragment scored <strong>0.827</strong> against an unrelated query, above chunks with real content and above any plausible threshold.</p>
+</div>
+
+<p>Trace the blast radius: the junk chunk clears the threshold, so a should-be-empty search comes back non-empty, so the counter resets, so the backstop never fires. One malformed input at the bottom of the pipeline quietly disarmed a guardrail three layers up. Worse: casual testing showed the backstop "working," because most queries didn't collide with the junk chunk's vocabulary. A guardrail can look validated by luck.</p>
+
+<pre><code>MIN_CHUNK_CHARS = 60   # drop chunks shorter than this before embedding
+
+# _chunk_text's return line becomes:
+    return [c for c in chunks if len(c["text"]) &gt;= MIN_CHUNK_CHARS]</code></pre>
+
+<p>Chunk-quality filtering isn't cosmetic cleanup. It's load-bearing for every guardrail whose input is a similarity score.</p>
+
+<h2 id="stale-cache">The stale-cache trap</h2>
+
+<div class="callout problem">
+<span class="label">The problem</span>
+<p>Change the chunking logic and rerun: nothing happens. The PDF's bytes didn't change, the content hash matches, ingestion skips, and the junk chunks sit exactly where they were, on disk. The cache is behaving as designed, and its design just silently discarded your fix.</p>
+</div>
+
+<p>The cache key was wrong from the start: the collection's contents are a function of the PDF <em>and</em> the chunking logic, and the key only covered the PDF. So the logic gets a version number, folded into the hash:</p>
+
+<pre><code>CHUNK_LOGIC_VERSION = 2   # bump when chunking/ingestion logic changes
+
+content_hash = hashlib.sha256(pdf_bytes + str(CHUNK_LOGIC_VERSION).encode()).hexdigest()[:16]</code></pre>
+
+<div class="callout takeaway">
+<span class="label">Takeaway</span>
+<p>Derived-data caches must key on everything the derivation depends on. File bytes are the obvious dependency; the code that transforms them is the one everyone forgets.</p>
+</div>
+
+<h2 id="run-it">What healthy looks like</h2>
+
+<p>Ask something with zero real coverage ("does the company offer a cryptocurrency signing bonus?") and the trace shows the counter path: two below-threshold rejections, then:</p>
+
+<pre class="trace"><code>  (tools disabled this turn — 2 consecutive empty searches, forcing a final answer)</code></pre>
+
+<p>Ask a two-part question where only half is answerable and you'll likely see the blind-spot path instead: the counter resets on semi-relevant matches, and the final-turn rule closes it out:</p>
+
+<pre class="trace"><code>  (tools disabled this turn — final turn, forcing a final answer)</code></pre>
+
+<p>Either way, a real answer. Termination isn't hoped for anymore; it's enforced.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="similarity-threshold.html">← Calibrating a Threshold</a>
+  <a class="next" href="input-guardrails.html">Input Screening →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

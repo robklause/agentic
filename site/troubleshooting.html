@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Troubleshooting a Local AI Agent: Ollama, ChromaDB, MCP — Agentic AI from Scratch</title>
+<meta name="description" content="Symptom-first fixes for local agent problems: pip no matching distribution for mcp, Ollama connection refused, tool calls ignored, stale ChromaDB cache, MCP client hangs, asyncio.run errors, and model swap stalls.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html" aria-current="page">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>Troubleshooting</h1>
+
+<p class="lede">Organized by symptom, because that's what you have when you arrive here. Each entry: what you're seeing, what's actually wrong, what to do.</p>
+<p class="builds-on">Jump to: <a href="#install">install</a> · <a href="#ollama">Ollama &amp; models</a> · <a href="#retrieval">retrieval</a> · <a href="#loop">loop &amp; guardrails</a> · <a href="#mcp">MCP</a></p>
+
+<h2 id="install">Installation and environment</h2>
+
+<h3>"Could not find a version that satisfies the requirement" / "No matching distribution found" for <code>mcp</code></h3>
+<p>Reads like a network problem. It's your Python version: the <code>mcp</code> SDK requires 3.10+, and pip on an older interpreter reports "no distribution" instead of "Python too old." Run <code>python3 --version</code>; if you see 3.9.x, rebuild the venv with a newer interpreter (<code>python3.12 -m venv .venv</code>). (<a href="setup.html#python">Setup</a>)</p>
+
+<h3>Packages installed fine, but the script can't find them</h3>
+<p>The venv isn't active in this shell, or your editor points at a different interpreter. <code>source .venv/bin/activate</code>, and in VS Code run "Python: Select Interpreter." <code>which python</code> should answer inside the project folder.</p>
+
+<h2 id="ollama">Ollama and models</h2>
+
+<h3>Connection refused / connection error on any model call</h3>
+<p>Ollama isn't serving. Run <code>ollama serve</code> (if it's already running as a service, that reports the port in use, which is fine). Confirm the endpoint matches: <code>localhost:11434</code>.</p>
+
+<h3>Model-not-found error naming your chat model</h3>
+<p>The pull didn't finish or the tag doesn't match. <code>ollama list</code> shows what you have; compare character for character against <code>MODEL</code>. Mac users who pulled <code>qwen3.5:9b-mlx</code> while the code says <code>qwen3.5:9b</code> (or the reverse) hit exactly this.</p>
+
+<h3>The model answers in text but never calls tools, or hallucinates argument JSON</h3>
+<p>Not every local model supports tool calling well, and the failure is behavioral, not an error. Before debugging your code, swap in a model documented as tool-call capable (<code>gemma4:12b</code> is a solid alternative) and compare. If gemma calls tools and yours doesn't, the code was never the problem. (<a href="setup.html#models">Setup</a>)</p>
+
+<h3>Long pauses mid-run, especially between the guard-model line and the first agent turn</h3>
+<p>Model swapping, not a hang. The series rotates three models, and on a machine without room to keep them resident (16GB is the squeeze point), Ollama evicts one to load another, costing seconds per swap. Fix hierarchy: patience; <code>USE_LLM_GUARD = False</code> to drop the guard model from the rotation; a smaller chat model; or more RAM plus a dedicated GPU/APU/NPU. On Apple Silicon prefer the <code>-mlx</code> tags. (<a href="setup.html#hardware">Hardware</a>)</p>
+
+<h3>Everything works, but the first handbook question takes a minute-plus</h3>
+<p>First-run ingestion embeds every chunk; that's the printed "may take a minute" doing what it said. Later runs print "already indexed... skipping." If ingestion runs on <em>every</em> start, see the cache entries below.</p>
+
+<h2 id="retrieval">Retrieval and the vector store</h2>
+
+<h3>Similarity scores look plausible but results are consistently nonsense</h3>
+<p>Classic mismatched-embedding-model signature: documents embedded with one model, queries with another, two vector spaces, no error anywhere. Usually appears after changing <code>EMBED_MODEL</code> without re-ingesting. Bump <code>CHUNK_LOGIC_VERSION</code> (or call <code>ingest_pdf(force=True)</code>) and recalibrate the threshold. (<a href="knowledge-base.html#embeddings">Knowledge base</a>)</p>
+
+<h3>You changed chunking logic and behavior didn't change at all</h3>
+<p>The stale-cache trap. The ingest cache keys on PDF bytes plus <code>CHUNK_LOGIC_VERSION</code>; changing logic without bumping the version means the cache correctly concluded nothing changed. Bump it and rerun. (<a href="guardrails-together.html#stale-cache">The trap</a>)</p>
+
+<h3>Chroma errors after an upgrade, or <code>create_collection</code> says the collection already exists</h3>
+<p><code>get_collection</code> can fail for reasons other than absence (an embedding-function config mismatch after a library upgrade is the known one), which is why <code>ingest_pdf</code> deletes unconditionally inside a try/except. If on-disk state is truly wedged, deleting the <code>chroma_db/</code> directory is safe: nothing in it is the source of truth.</p>
+
+<h3>Covered topics get rejected by the threshold, or absent topics sail through</h3>
+<p>The threshold is calibrated to one document, one chunking, one embedding model; change any and the old number describes a geometry that no longer exists. Rerun <code>calibrate_similarity_threshold()</code> and <em>read the printed table</em>: overlapping classes show up as flagged misclassifications. Also verify your eval labels against the corpus; one mislabeled example poisons the midpoint. (<a href="similarity-threshold.html#calibration">Calibration</a>)</p>
+
+<h3>A search returns a title or header fragment with a suspiciously high score</h3>
+<p>The junk-chunk artifact (a bare "EMPLOYEE HANDBOOK" fragment scored 0.827 in testing). <code>MIN_CHUNK_CHARS</code> exists for this. If you're still seeing it: the filter was removed, the cache is stale, or your document produces junk longer than 60 characters, in which case raise the floor and bump the version. (<a href="guardrails-together.html#junk-chunks">Junk chunks</a>)</p>
+
+<h2 id="loop">The loop and guardrails</h2>
+
+<h3>"Hit max_turns without a final answer."</h3>
+<p>From <a href="guardrails-together.html#backstop">the backstop page</a> onward this should be unreachable: the final turn never offers tools, so the model must answer in text before the cap expires. If you see it, either you're running an earlier checkpoint (expected there), or the final-turn condition didn't make it into your file. Check that <code>force_text_only</code> includes <code>or turn == max_turns - 1</code>.</p>
+
+<h3>The answer is "(the model returned an empty answer)"</h3>
+<p>The guardrails worked; the model didn't. A forced text-only turn can make a small model emit an empty string, and this fallback stops it rendering as a blank line. If it recurs often, that's a model-capability signal, not a code bug. (<a href="bigger-models.html">Bigger models</a>)</p>
+
+<h3>The citation guardrail flags pages on answers that look right</h3>
+<p>Working as designed; the question is which side is wrong. If the cited page really contains the fact, the model likely knew it from a compacted digest while <code>retrieved_pages</code> was reset. If the page is plausible-but-wrong, you just watched the guardrail do its job. (<a href="output-guardrails.html">Verifying citations</a>)</p>
+
+<h3>Constant "zero page citations — cannot verify grounding" flags</h3>
+<p>The model isn't complying with the strict citation format, common with smaller models. Confirm the system prompt includes the full strict-format rule (the <code>p.17</code> example does real work), and consider whether your model is up to instruction-following at this density.</p>
+
+<h3>Legitimate prompts get blocked by the pattern screen</h3>
+<p>A known false-positive cost ("ignore the store hours for a second..." trips the first pattern). The block message names the matched category; find that pattern and narrow it the way the "pretend" pattern was narrowed, letting ambiguity fall through to the guard model. (<a href="input-guardrails.html#pass1">Pattern list</a>)</p>
+
+<h3>"Granite Guardian check failed, failing open" on every prompt</h3>
+<p>The guard model isn't reachable: not pulled (<code>ollama pull granite4.1-guardian:8b</code>), or Ollama is down. The system keeps working on the regex layer alone; set <code>USE_LLM_GUARD = False</code> to silence the warnings until you pull it.</p>
+
+<h3>Guardian responds but never flags anything, or flags everything</h3>
+<p>Check the raw output the trace prints against the parser's expectation: a literal <code>&lt;score&gt;yes&lt;/score&gt;</code> or <code>&lt;score&gt;no&lt;/score&gt;</code>. A different Guardian version with a different output shape parses as never-flagged. Verify against your live model and adjust the regex. (<a href="input-guardrails.html#pass2">Guard model</a>)</p>
+
+<h2 id="mcp">MCP</h2>
+
+<h3>You ran the server by hand and it just sits there</h3>
+<p>Correct behavior. A stdio server blocks on stdin waiting for a client handshake; it waits forever when run by hand. Ctrl+C to exit. No output plus no traceback equals a working server. (<a href="mcp-server.html#run-by-hand">MCP server</a>)</p>
+
+<h3>The agent hangs at startup, before the <code>[mcp] connected</code> line</h3>
+<p>The client is waiting for a handshake that isn't coming. Usual causes in order: <code>mcp_weather_server.py</code> isn't in the working directory you launched from (the launch recipe uses a relative path); the server crashes on import, so nothing is listening (run it by hand once, expecting silence, not a traceback); or the <code>command</code> in <code>MCP_SERVER_PARAMS</code> doesn't resolve, <code>python3</code> versus <code>python</code> on Windows being the common case.</p>
+
+<h3>MCP tool results arrive as escaped JSON strings inside strings</h3>
+<p><code>structured_content</code> came back <code>None</code> and something passed the raw text block through. A plain <code>-&gt; dict</code> server return doesn't populate it; only a Pydantic model return does. <code>_call_mcp_tool</code> handles this by parsing the text block; if you wrote your own client path, add the same fallback. (<a href="mcp-server.html#gotcha">The gotcha</a>)</p>
+
+<h3>Every MCP call is slow and Python processes churn in the process table</h3>
+<p>The respawn trap: something opens a connection per call (usually <code>asyncio.run(...)</code> at the dispatch site) instead of one for the run. For a stdio server the connection owns the subprocess, so per-call connections mean per-call process spawns. Restructure to the single long-lived <code>async with</code>. (<a href="mcp-client.html#async">Connection lifetime</a>)</p>
+
+<h3><code>RuntimeError: asyncio.run() cannot be called from a running event loop</code></h3>
+<p>Something inside the async call stack called <code>asyncio.run</code> while <code>main</code> was already running under it. Inside async code, <code>await</code> things; <code>asyncio.run</code> belongs in exactly one place, the <code>__main__</code> entry point.</p>
+
+<h2 id="nothing-fits">When nothing here fits</h2>
+
+<p>Turn <code>verbose</code> on and read the trace end to end before theorizing: the raw messages, the tool dispatches with their <code>(local)</code>/<code>(mcp)</code> labels, and the guardrail lines tell you what actually happened, which beats any hypothesis about what should have. Then diff your file against the nearest <a href="code.html">checkpoint</a>. Ten minutes of diff has settled every "but I didn't change anything" in the history of software.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="tips.html">← Tips &amp; Lessons</a>
+  <a class="next" href="code.html">Code Checkpoints →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>

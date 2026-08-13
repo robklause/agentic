@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What Is an Agentic Loop — Agentic AI from Scratch</title>
+<meta name="description" content="An AI agent is a loop: send the model tools, execute the tool calls it requests, feed results back, repeat until it answers. The complete loop in ~40 lines of Python, with the raw tool-call wire format.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="site">
+  <a class="brand" href="index.html">Agentic AI <span>from Scratch</span></a>
+  <nav class="quick">
+    <a href="setup.html">Setup</a>
+    <a href="tips.html">Tips</a>
+    <a href="troubleshooting.html">Troubleshooting</a>
+    <a href="code.html">Code</a>
+  </nav>
+</header>
+
+<div class="wrap">
+
+<nav class="sidebar">
+  <p class="part">Start</p>
+  <ol>
+    <li><a href="index.html">Overview</a></li>
+    <li><a href="setup.html">Setup &amp; Install</a></li>
+  </ol>
+  <p class="part">Part 1 · The Loop</p>
+  <ol>
+    <li><a href="loop.html" aria-current="page">What Is an Agentic Loop</a></li>
+    <li><a href="first-tools.html">Your First Tools</a></li>
+    <li><a href="knowledge-base.html">Adding a Knowledge Base</a></li>
+  </ol>
+  <p class="part">Part 2 · Guardrails</p>
+  <ol>
+    <li><a href="why-guardrails.html">Why Guardrails</a></li>
+    <li><a href="output-guardrails.html">Verifying Citations</a></li>
+    <li><a href="similarity-threshold.html">Calibrating a Threshold</a></li>
+    <li><a href="guardrails-together.html">Guardrails That Compose</a></li>
+    <li><a href="input-guardrails.html">Input Screening</a></li>
+    <li><a href="bigger-models.html">What Bigger Models Change</a></li>
+  </ol>
+  <p class="part">Part 3 · MCP</p>
+  <ol>
+    <li><a href="mcp-overview.html">Where MCP Fits</a></li>
+    <li><a href="mcp-server.html">Building an MCP Server</a></li>
+    <li><a href="mcp-client.html">Merging Local &amp; MCP Tools</a></li>
+  </ol>
+  <p class="part">Reference</p>
+  <ol>
+    <li><a href="tips.html">Tips &amp; Lessons</a></li>
+    <li><a href="going-further.html">Going Further</a></li>
+    <li><a href="troubleshooting.html">Troubleshooting</a></li>
+    <li><a href="code.html">Code Checkpoints</a></li>
+  </ol>
+</nav>
+
+<main>
+
+<h1>What Is an Agentic Loop</h1>
+
+<p class="lede">An agent is a loop that lets the model ask your code for things. The model proposes a tool call, your code runs it, the result goes back into the conversation, and it repeats until the model answers in text. That's the entire mechanism behind "agentic" behavior. This page shows the loop in about 40 lines.</p>
+<p class="builds-on">Builds on: <a href="setup.html">Setup</a> (Ollama serving, chat model pulled). Produces: the loop skeleton the whole series grows.</p>
+
+<h2 id="one-call">One model call, no tools</h2>
+
+<p>Strip everything away and an LLM interaction is one request: a list of messages in, one message back.</p>
+
+<pre><code>from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
+MODEL = "qwen3.5:9b"   # on Apple Silicon: "qwen3.5:9b-mlx"
+
+response = client.chat.completions.create(
+    model=MODEL,
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "What's 3 times 68?"},
+    ],
+)
+print(response.choices[0].message.content)</code></pre>
+
+<p>Two things about this shape matter more than they look.</p>
+
+<p><strong>The API is stateless.</strong> The server keeps nothing between calls. Every request resends the full history, and the model's entire sense of "what has happened" is the <code>messages</code> list. This is what people mean by the <em>context window</em>: the bounded conversation the model can see at once. It has consequences you'll hit when <a href="knowledge-base.html#compaction">tool results start bloating the list</a>.</p>
+
+<p><strong>The model only knows what it memorized in training.</strong> Live weather, today's date, your company handbook: it will refuse, or worse, guess fluently. The fix isn't a smarter model. It's giving the model a way to ask your code.</p>
+
+<h2 id="wire-format">What a tool call looks like on the wire</h2>
+
+<p>Tool calling: alongside your messages, you send tool descriptions in JSON Schema. The model can't execute anything. What it can do is reply with a structured request instead of prose:</p>
+
+<pre><code>{
+  "role": "assistant",
+  "content": null,
+  "tool_calls": [
+    {
+      "id": "call_abc123",
+      "function": {
+        "name": "get_weather",
+        "arguments": "{\"city\": \"Austin\"}"
+      }
+    }
+  ]
+}</code></pre>
+
+<p>No answer text; <code>content</code> is null. The model is asking your code to run <code>get_weather(city="Austin")</code> and report back. (A weather tool is the classic example for the shape; you'll build a real one in <a href="mcp-server.html">Part 3</a>. The first tools you actually write are a <a href="first-tools.html">calculator and a comparator</a>.)</p>
+
+<p>Three details you'll code against: <code>arguments</code> is a JSON <em>string</em>, so you <code>json.loads</code> it. The <code>id</code> ties your eventual result back to this specific request. And this response is <strong>the seam of the whole series</strong>: everything later, guardrails, MCP, plugs into the moment between "the model asked for a tool call" and "run it."</p>
+
+<h2 id="the-loop">The loop</h2>
+
+<p>Handle that response in a loop and you have an agent. (This is the teaching version; <code>TOOL_SCHEMAS</code> and <code>TOOL_IMPLEMENTATIONS</code> arrive on the <a href="first-tools.html">next page</a>, which makes it runnable.)</p>
+
+<pre><code>import json
+
+def run_agent(user_prompt: str, max_turns: int = 5, verbose: bool = True) -&gt; str:
+    messages = [
+        {"role": "system", "content": "You are a helpful assistant. "
+         "Use tools when they help answer the question."},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    for turn in range(max_turns):
+        response = client.chat.completions.create(
+            model=MODEL,
+            messages=messages,
+            tools=TOOL_SCHEMAS,   # the JSON Schema list — next page
+        )
+        message = response.choices[0].message
+
+        # Case 1: model is done — it returned a normal text answer.
+        if not message.tool_calls:
+            return message.content
+
+        # Case 2: model wants to call one or more tools.
+        # Append the assistant's request first — the API requires it
+        # before the matching tool result messages.
+        messages.append(message)
+
+        for call in message.tool_calls:
+            name = call.function.name
+            args = json.loads(call.function.arguments)
+
+            # &gt;&gt;&gt; the seam: everything later plugs in here &lt;&lt;&lt;
+            impl = TOOL_IMPLEMENTATIONS.get(name)   # dispatch dict — next page
+            result = impl(**args) if impl else {"error": f"unknown tool {name}"}
+
+            if verbose:
+                print(f"--- turn {turn}: {name}({args}) -&gt; {result}")
+
+            # Feed the result back as a "tool" message tied to this call id.
+            messages.append({
+                "role": "tool",
+                "tool_call_id": call.id,
+                "content": json.dumps(result),
+            })
+
+    return "Hit max_turns without a final answer."</code></pre>
+
+<h2 id="exit-conditions">Read the exit conditions; they're the design</h2>
+
+<p>The loop ends two ways: the model returns a message with no <code>tool_calls</code> (your answer), or <code>max_turns</code> runs out. The cap isn't decoration. A model can request tool call after tool call forever, and without a limit that's an infinite loop burning compute.</p>
+
+<p>Later, <a href="guardrails-together.html">Guardrails That Compose</a> meets a subtler version of this failure (a model reformulating the same fruitless search five ways) and builds sharper backstops. The blunt cap stays anyway. Defense in depth starts here.</p>
+
+<p>Notice what the loop does <em>not</em> do: no parsing prose for intent, no regexing answers out of text, no state beyond the message list. The list is the agent's entire memory; the structured <code>tool_calls</code> field is the entire protocol. That austerity is why this loop, unchanged, later drives tools it discovers at runtime from a separate process.</p>
+
+<h2 id="no-magic">Why "agentic" is just this</h2>
+
+<div class="callout takeaway">
+<span class="label">Takeaway</span>
+<p>There is no separate agent runtime, no planner module, no hidden reasoning engine. Frameworks selling "agent orchestration" are selling this loop with configuration on top. When you know the loop, framework docs stop being magic words and become a map of where someone else put their guardrails and dispatch.</p>
+</div>
+
+<p>That's not a dismissal of frameworks (see <a href="going-further.html#frameworks">how to evaluate them</a>). It's a claim about understanding: you'll judge those products by asking where the seam is, because you'll know there has to be one.</p>
+
+<nav class="pagenav">
+  <a class="prev" href="setup.html">← Setup &amp; Install</a>
+  <a class="next" href="first-tools.html">Your First Tools →</a>
+</nav>
+
+</main>
+</div>
+
+<footer class="colophon">From <em>Agentic AI from Scratch</em> · © 2026 Rob Klause · Text <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>, code MIT · Everything here runs locally, no credits required</footer>
+
+</body>
+</html>
