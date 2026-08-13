@@ -4,7 +4,7 @@
 
 A free book and companion website for solution architects who want to understand agentic AI by building one real system, end to end, on their own hardware. No API keys, no credits, no framework hiding the loop.
 
-**Read it online: [agentic.koidev.us](https://agentic.koidev.us)**
+**Read it online: [robklause.github.io/agentic](https://robklause.github.io/agentic)**
 
 ---
 
