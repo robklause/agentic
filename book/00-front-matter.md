@@ -38,6 +38,24 @@ You should be comfortable reading Python and working a command line. That's the 
 
 What this book won't do is explain what an API is, what a virtual environment is for, or why you'd want version control. You already know.
 
+## Should You Use a Framework?
+
+Yes. When it's time to build something real, use a framework.
+
+That's worth saying up front, before you spend a few evenings building an agent by hand. LangGraph, the vendor SDKs, and their neighbors solve problems you don't want to solve twice: retries and backoff, streaming, checkpointing, conversation persistence, provider abstraction, observability. None of that is where your product differentiates, and all of it is tedious to get right.
+
+This book is not an argument against those tools, and the code in it is not a production foundation. Don't ship it.
+
+So why build the thing by hand at all?
+
+Because a framework gives you plumbing, not judgment. Everything in Part 2 stays your problem no matter which framework you pick. No library decides what your retrieval threshold should be, or notices that your eval set is measuring your assumptions rather than your corpus. None of them will tell you that a two-word chunk is quietly disarming a guardrail three layers above it, that a document's silence is not the same as a "no," or that two individually correct protections just composed into a new failure. Those are design decisions, and they stay yours.
+
+There's a second payoff, and it shows up the first time you read a framework's documentation after this. The abstractions stop being magic words. You know there's a loop in there. You know where the seam between "the model asked for a tool" and "run it" has to be. You know somebody's compaction policy is running whether the docs mention one or not. That's the difference between evaluating a tool and being sold one.
+
+Some of what's here isn't really about agents at all. Semantic search behaves in ways worth seeing directly: how embeddings score things that merely sound related, why a similarity threshold has to be measured rather than guessed, what "no match" actually looks like in a coherent corpus. That knowledge outlives whatever framework is fashionable when you read this.
+
+So: build it once, by hand, to see the mechanism. Then go use a framework, and be the person on the team who knows what it's doing. Chapter 15 comes back to this with a lens for evaluating specific ones.
+
 ## Why Local-First
 
 Everything in this book runs on your own machine through Ollama, a free runtime that serves open-weight models on localhost. No API keys. No credits. No rate limits. No data leaving your laptop.
