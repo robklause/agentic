@@ -34,7 +34,7 @@ ollama pull granite4.1-guardian:8b  # optional
 python agentic_demo.py
 ```
 
-First run ingests the PDF (a minute or so) and calibrates the retrieval threshold. Later runs skip straight to querying. Full setup notes, including hardware expectations and the one misleading pip error, are in [`book/01-setup.md`](book/01-setup.md) or on the [setup page](https://agentic.koidev.us/setup.html).
+First run ingests the PDF (a minute or so) and calibrates the retrieval threshold. Later runs skip straight to querying. Full setup notes, including hardware expectations and the one misleading pip error, are in [`book/01-setup.md`](book/01-setup.md) or on the [setup page](https://robklause.github.io/agentic/setup.html).
 
 To start from any chapter instead of the finished system, copy the matching checkpoint:
 
@@ -79,7 +79,7 @@ Code samples in the book are deliberately MIT rather than CC BY, so you can lift
 
 Attribution for the prose, if you need the boilerplate:
 
-> "Agentic AI from Scratch" by Rob Klause, licensed under CC BY 4.0. https://agentic.koidev.us
+> "Agentic AI from Scratch" by Rob Klause, licensed under CC BY 4.0. https://robklause.github.io/agentic/
 
 **On AI-generated portions:** the prose here was drafted with substantial AI involvement (see the book's introduction). Under current U.S. law, purely AI-generated expression may not be copyrightable, and copyright extends only to the human contributions. The content license is granted to the extent copyright subsists, and is not a claim that every sentence is protected. [`LICENSE-CONTENT`](LICENSE-CONTENT) says this in full. Not legal advice.
 
