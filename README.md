@@ -24,7 +24,7 @@ A free book and companion website for solution architects who want to understand
 ## Running the agent
 
 ```bash
-python3.12 -m venv .venv && source .venv/bin/activate   # Python 3.10+ required
+python3 -m venv .venv && source .venv/bin/activate   # Python 3.10+ required
 pip install -r requirements.txt
 
 ollama pull qwen3.5:9b              # or qwen3.5:9b-mlx on Apple Silicon
