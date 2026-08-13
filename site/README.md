@@ -6,12 +6,15 @@ Static companion site for the book. Portable by design: **copy this folder anywh
 
 No build step, no dependencies, no server requirements beyond static file hosting.
 
-**Current setup: GitHub Pages**, published automatically by [`.github/workflows/deploy-pages.yml`](../.github/workflows/deploy-pages.yml) on any push to `main` that touches `site/`. Repo settings must have **Pages → Source → GitHub Actions**. See the [root README](../README.md#deploying-to-github-pages) for the DNS records.
+**Current setup: GitHub Pages** at https://robklause.github.io/agentic/, published automatically by [`.github/workflows/static.yml`](../.github/workflows/static.yml) on any push to `main` that touches `site/`. Repo settings must have **Pages → Source → GitHub Actions**.
 
-Two files in here exist only for that:
+The site is served from a subpath (`/agentic/`) and works there because every internal link is relative. Nothing here assumes a domain root.
 
-- `CNAME` — the custom domain (`agentic.koidev.us`). Change this file to change the domain; delete it to serve from `yourname.github.io`.
+One file in here exists only for Pages:
+
 - `.nojekyll` — belt and braces. The Actions workflow uploads a plain artifact and never runs Jekyll, but this keeps things predictable if you ever switch to branch-based publishing, where Jekyll would otherwise ignore any file starting with an underscore.
+
+To use a custom domain, add a `CNAME` file here containing just the domain, and set up DNS first. See the [root README](../README.md#adding-a-custom-domain-later).
 
 Anywhere else works too, because every link is relative:
 
