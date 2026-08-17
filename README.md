@@ -85,7 +85,7 @@ Attribution for the prose, if you need the boilerplate:
 
 ## Also available on Kindle
 
-A Kindle edition is available for readers who prefer it on an e-reader. Everything in it is on this site for free; the paid edition is convenience and support, not exclusive access. [Kindle Book](https://kdp.amazon.com/en_US/bookshelf?ref_=kdp_kdp_BS_D_TN_bs)
+A Kindle edition is available for readers who prefer it on an e-reader. Everything in it is on this site for free; the paid edition is convenience and support, not exclusive access. [Kindle Book](https://www.amazon.com/dp/B0HFCHXCVP)
 
 ## Author
 
